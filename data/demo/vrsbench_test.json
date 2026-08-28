@@ -1,0 +1,172 @@
+[
+  {
+    "sample_id": "vrs_01",
+    "image_path": "data/demo/optical/scene_optical.tif",
+    "modality": "optical",
+    "question": "Where is the water?",
+    "answer": "Found 3 distinct water regions, covering about 1.16 km\u00b2.",
+    "bbox": [
+      100,
+      20,
+      412,
+      492
+    ],
+    "metadata": {
+      "target": "water",
+      "sector": null
+    }
+  },
+  {
+    "sample_id": "vrs_02",
+    "image_path": "data/demo/optical/scene_optical.tif",
+    "modality": "optical",
+    "question": "Where is the water in the north?",
+    "answer": "Found water in the northern sector.",
+    "bbox": [
+      100,
+      20,
+      256,
+      492
+    ],
+    "metadata": {
+      "target": "water",
+      "sector": "north"
+    }
+  },
+  {
+    "sample_id": "vrs_03",
+    "image_path": "data/demo/optical/scene_optical.tif",
+    "modality": "optical",
+    "question": "Where is the vegetation?",
+    "answer": "Found vegetation patches.",
+    "bbox": [
+      50,
+      50,
+      460,
+      460
+    ],
+    "metadata": {
+      "target": "vegetation",
+      "sector": null
+    }
+  },
+  {
+    "sample_id": "vrs_04",
+    "image_path": "data/demo/optical/scene_optical.tif",
+    "modality": "optical",
+    "question": "Where is the vegetation in the east?",
+    "answer": "Found vegetation in the eastern sector.",
+    "bbox": [
+      50,
+      256,
+      460,
+      492
+    ],
+    "metadata": {
+      "target": "vegetation",
+      "sector": "east"
+    }
+  },
+  {
+    "sample_id": "vrs_05",
+    "image_path": "data/demo/optical/scene_optical.tif",
+    "modality": "optical",
+    "question": "Where is the bare soil?",
+    "answer": "Found bare soil patches.",
+    "bbox": [
+      10,
+      10,
+      500,
+      500
+    ],
+    "metadata": {
+      "target": "bare_soil",
+      "sector": null
+    }
+  },
+  {
+    "sample_id": "vrs_06",
+    "image_path": "data/demo/optical/scene_optical.tif",
+    "modality": "optical",
+    "question": "Locate water bodies.",
+    "answer": "Found distinct water regions.",
+    "bbox": [
+      100,
+      20,
+      412,
+      492
+    ],
+    "metadata": {
+      "target": "water",
+      "sector": null
+    }
+  },
+  {
+    "sample_id": "vrs_07",
+    "image_path": "data/demo/optical/scene_optical.tif",
+    "modality": "optical",
+    "question": "Locate vegetation in the centre.",
+    "answer": "Found vegetation in the central sector.",
+    "bbox": [
+      128,
+      128,
+      384,
+      384
+    ],
+    "metadata": {
+      "target": "vegetation",
+      "sector": "centre"
+    }
+  },
+  {
+    "sample_id": "vrs_08",
+    "image_path": "data/demo/optical/scene_optical.tif",
+    "modality": "optical",
+    "question": "Where is the vegetation in the south?",
+    "answer": "Found vegetation in the southern sector.",
+    "bbox": [
+      256,
+      50,
+      460,
+      460
+    ],
+    "metadata": {
+      "target": "vegetation",
+      "sector": "south"
+    }
+  },
+  {
+    "sample_id": "vrs_09",
+    "image_path": "data/demo/optical/scene_optical.tif",
+    "modality": "optical",
+    "question": "Where is the water in the west?",
+    "answer": "Found water in the western sector.",
+    "bbox": [
+      100,
+      20,
+      412,
+      256
+    ],
+    "metadata": {
+      "target": "water",
+      "sector": "west"
+    }
+  },
+  {
+    "sample_id": "vrs_10",
+    "image_path": "data/demo/optical/scene_optical.tif",
+    "modality": "optical",
+    "question": "Highlight the water.",
+    "answer": "Highlighted water regions.",
+    "bbox": [
+      100,
+      20,
+      412,
+      492
+    ],
+    "metadata": {
+      "target": "water",
+      "sector": null
+    }
+  }
+]

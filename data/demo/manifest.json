@@ -1,0 +1,120 @@
+{
+  "generator": "scripts/generate_demo_data.py",
+  "seed": 20260101,
+  "note": "Synthetic imagery with exactly-known ground truth. Spectral and backscatter signatures follow published class behaviour so indices and fusion behave as they would on real scenes. These are NOT real satellite acquisitions and the coordinates are illustrative.",
+  "grid": {
+    "width": 512,
+    "height": 512,
+    "pixel_size_m": 10.0,
+    "crs": "EPSG:32643",
+    "pixel_area_m2": 100.0,
+    "transform": [
+      10.0,
+      0.0,
+      700000.0,
+      0.0,
+      -10.0,
+      2100000.0
+    ],
+    "bounds": [
+      700000.0,
+      2094880.0,
+      705120.0,
+      2100000.0
+    ]
+  },
+  "optical_bands": [
+    "blue",
+    "green",
+    "red",
+    "nir",
+    "swir1",
+    "swir2"
+  ],
+  "class_codes": {
+    "0": "unclassified",
+    "1": "water",
+    "2": "vegetation",
+    "3": "built_up",
+    "4": "bare_soil"
+  },
+  "reflectance": {
+    "water": [
+      0.06,
+      0.08,
+      0.05,
+      0.02,
+      0.01,
+      0.01
+    ],
+    "vegetation": [
+      0.03,
+      0.06,
+      0.04,
+      0.45,
+      0.2,
+      0.1
+    ],
+    "built_up": [
+      0.15,
+      0.16,
+      0.18,
+      0.22,
+      0.3,
+      0.28
+    ],
+    "bare_soil": [
+      0.12,
+      0.15,
+      0.2,
+      0.28,
+      0.32,
+      0.25
+    ]
+  },
+  "sar_backscatter_db": {
+    "water": -20.0,
+    "vegetation": -10.0,
+    "built_up": -3.5,
+    "bare_soil": -14.0
+  },
+  "ground_truth": {
+    "t1_class_pixels": {
+      "water": 12460,
+      "vegetation": 58515,
+      "built_up": 7826,
+      "bare_soil": 183343
+    },
+    "t2_class_pixels": {
+      "water": 8881,
+      "vegetation": 61781,
+      "built_up": 16910,
+      "bare_soil": 174572
+    },
+    "t1_class_area_m2": {
+      "water": 1246000.0,
+      "vegetation": 5851500.0,
+      "built_up": 782600.0,
+      "bare_soil": 18334300.0
+    },
+    "changed_pixels": 25320,
+    "changed_area_m2": 2532000.0,
+    "changed_fraction": 0.096588134765625
+  },
+  "known_changes": [
+    "urban expansion east of the existing built-up core (bare soil -> built-up)",
+    "new settlement replacing part of the north-west field (vegetation -> built-up)",
+    "reservoir shrinkage (water -> bare soil)",
+    "newly irrigated cropland in the south (bare soil -> vegetation)"
+  ],
+  "edge_cases": [
+    "empty.tif",
+    "corrupt.tif",
+    "not_an_image.pdf",
+    "different_crs.tif",
+    "different_res.tif",
+    "disjoint_extent.tif",
+    "rgb_only.tif",
+    "no_georeference.tif"
+  ]
+}

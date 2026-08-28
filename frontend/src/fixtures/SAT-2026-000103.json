@@ -1,0 +1,2385 @@
+{
+  "id": "SAT-2026-000103",
+  "request_id": "req-sat-2026-000103",
+  "created_at": "2026-08-26T09:09:00Z",
+  "status": "success",
+  "mode": "single_optical",
+  "title": "Grounding with a withheld count",
+  "note": "Built-up cannot be counted from optical alone \u2014 extent kept, count declined (\u00a74.8).",
+  "query": "How many buildings are there?",
+  "task": "grounding",
+  "tool": "grounding-spectral-cv",
+  "tier": "classical",
+  "duration_ms": 355.09,
+  "answer": "The built up extent is mapped (covering about 0.95 km\u00b2 (9501 px)), but the number of separate regions cannot be stated reliably from this image alone. Each region is one connected patch of built-up land mapped at about 10 m per pixel \u2014 a block of development, not an individual building. Structures closer together than the pixel size cannot be separated.",
+  "answer_withheld": null,
+  "confidence": {
+    "level": "high",
+    "score": 0.8777,
+    "sufficient": true,
+    "limiting_factor": "class_separability",
+    "reasons": [
+      "1 processing warning(s) were raised; see the result for details.",
+      "The grounded class was separable at 0.88; 25 region(s) returned from 9501 class pixels.",
+      "Input image quality scored 0.99 (dynamic range 0.73, saturation 0.02, nodata 0.00).",
+      "Region extent is reported; the region count is withheld as unreliable for this class and sensor set."
+    ],
+    "factors": [
+      {
+        "name": "class_separability",
+        "value": 0.8777,
+        "weight": 0.45,
+        "kind": "gate",
+        "reason": "The grounded class was separable at 0.88; 25 region(s) returned from 9501 class pixels."
+      },
+      {
+        "name": "warnings",
+        "value": 0.85,
+        "weight": 0.1,
+        "kind": "contributor",
+        "reason": "1 processing warning(s) were raised; see the result for details."
+      },
+      {
+        "name": "count_reportable",
+        "value": 1.0,
+        "weight": 0.0,
+        "kind": "contributor",
+        "reason": "Region extent is reported; the region count is withheld as unreliable for this class and sensor set."
+      },
+      {
+        "name": "input_quality",
+        "value": 0.9895,
+        "weight": 0.25,
+        "kind": "contributor",
+        "reason": "Input image quality scored 0.99 (dynamic range 0.73, saturation 0.02, nodata 0.00)."
+      }
+    ]
+  },
+  "evidence": [
+    "Source: optical-classification (spectral-indices).",
+    "Classification method: spectral-indices; class separability 0.8777.",
+    "25 candidate patches above the 25-pixel floor (2500 m\u00b2 minimum region).",
+    "Region strength scored by ndbi (reported as evidence only, never used to accept or reject a region).",
+    "The number of separate areas cannot be stated reliably from this image alone. Built-up land and bare soil are both bright in the short-wave infrared, so the boundary between them is inferred from surface texture rather than measured directly, and neighbouring patches merge into one another wherever that texture cue is weak. The mapped extent and the total area are unaffected; only the number of separate regions is. Radar measures that boundary directly, through the double-bounce return from vertical structure, so supplying a co-registered SAR image of the same area makes the count reportable."
+  ],
+  "warnings": [
+    "The number of separate areas cannot be stated reliably from this image alone. Built-up land and bare soil are both bright in the short-wave infrared, so the boundary between them is inferred from surface texture rather than measured directly, and neighbouring patches merge into one another wherever that texture cue is weak. The mapped extent and the total area are unaffected; only the number of separate regions is. Radar measures that boundary directly, through the double-bounce return from vertical structure, so supplying a co-registered SAR image of the same area makes the count reportable."
+  ],
+  "data": {
+    "query": {
+      "raw": "How many buildings are there?",
+      "target": "built_up",
+      "target_phrase": "buildings",
+      "sector": null,
+      "sector_phrase": null,
+      "sector_interpretation": null,
+      "min_area_m2": null,
+      "max_area_m2": null,
+      "min_pixels": null,
+      "max_pixels": null,
+      "superlative": null,
+      "limit": null,
+      "wants_count": true,
+      "wants_area": false
+    },
+    "target": "built_up",
+    "count": 25,
+    "count_reportable": false,
+    "count_caveat": "The number of separate areas cannot be stated reliably from this image alone. Built-up land and bare soil are both bright in the short-wave infrared, so the boundary between them is inferred from surface texture rather than measured directly, and neighbouring patches merge into one another wherever that texture cue is weak. The mapped extent and the total area are unaffected; only the number of separate regions is. Radar measures that boundary directly, through the double-bounce return from vertical structure, so supplying a co-registered SAR image of the same area makes the count reportable.",
+    "region_semantics": "Each region is one connected patch of built-up land mapped at about 10 m per pixel \u2014 a block of development, not an individual building. Structures closer together than the pixel size cannot be separated.",
+    "source": "optical-classification (spectral-indices)",
+    "selected_pixels": 9501,
+    "selected_area_m2": 950100.0,
+    "class_pixels": 9501,
+    "class_coverage_fraction": 0.0362,
+    "georeferenced": true,
+    "regions": [
+      {
+        "id": 1,
+        "pixel_area": 8572,
+        "area_m2": 857200.0,
+        "bbox_pixel": [
+          247,
+          197,
+          364,
+          305
+        ],
+        "bbox_geo": [
+          702470.0,
+          2096960.0,
+          703630.0,
+          2098030.0
+        ],
+        "polygon_pixel": [
+          [
+            250.0,
+            199.0
+          ],
+          [
+            252.0,
+            206.0
+          ],
+          [
+            248.0,
+            213.0
+          ],
+          [
+            251.0,
+            219.0
+          ],
+          [
+            258.0,
+            219.0
+          ],
+          [
+            262.0,
+            222.0
+          ],
+          [
+            261.0,
+            225.0
+          ],
+          [
+            248.0,
+            231.0
+          ],
+          [
+            247.0,
+            248.0
+          ],
+          [
+            250.0,
+            250.0
+          ],
+          [
+            249.0,
+            258.0
+          ],
+          [
+            252.0,
+            260.0
+          ],
+          [
+            250.0,
+            274.0
+          ],
+          [
+            262.0,
+            276.0
+          ],
+          [
+            261.0,
+            282.0
+          ],
+          [
+            248.0,
+            285.0
+          ],
+          [
+            247.0,
+            294.0
+          ],
+          [
+            256.0,
+            304.0
+          ],
+          [
+            260.0,
+            300.0
+          ],
+          [
+            259.0,
+            297.0
+          ],
+          [
+            264.0,
+            293.0
+          ],
+          [
+            267.0,
+            295.0
+          ],
+          [
+            276.0,
+            293.0
+          ],
+          [
+            290.0,
+            301.0
+          ],
+          [
+            297.0,
+            301.0
+          ],
+          [
+            301.0,
+            298.0
+          ],
+          [
+            308.0,
+            301.0
+          ],
+          [
+            314.0,
+            297.0
+          ],
+          [
+            323.0,
+            300.0
+          ],
+          [
+            325.0,
+            298.0
+          ],
+          [
+            325.0,
+            290.0
+          ],
+          [
+            328.0,
+            288.0
+          ],
+          [
+            331.0,
+            290.0
+          ],
+          [
+            335.0,
+            303.0
+          ],
+          [
+            345.0,
+            300.0
+          ],
+          [
+            356.0,
+            301.0
+          ],
+          [
+            352.0,
+            295.0
+          ],
+          [
+            361.0,
+            287.0
+          ],
+          [
+            360.0,
+            283.0
+          ],
+          [
+            362.0,
+            281.0
+          ],
+          [
+            356.0,
+            280.0
+          ],
+          [
+            350.0,
+            283.0
+          ],
+          [
+            341.0,
+            279.0
+          ],
+          [
+            338.0,
+            280.0
+          ],
+          [
+            335.0,
+            276.0
+          ],
+          [
+            339.0,
+            272.0
+          ],
+          [
+            343.0,
+            274.0
+          ],
+          [
+            351.0,
+            269.0
+          ],
+          [
+            356.0,
+            270.0
+          ],
+          [
+            359.0,
+            274.0
+          ],
+          [
+            363.0,
+            271.0
+          ],
+          [
+            360.0,
+            268.0
+          ],
+          [
+            354.0,
+            267.0
+          ],
+          [
+            352.0,
+            249.0
+          ],
+          [
+            356.0,
+            242.0
+          ],
+          [
+            350.0,
+            238.0
+          ],
+          [
+            351.0,
+            231.0
+          ],
+          [
+            357.0,
+            221.0
+          ],
+          [
+            356.0,
+            212.0
+          ],
+          [
+            363.0,
+            208.0
+          ],
+          [
+            361.0,
+            200.0
+          ],
+          [
+            357.0,
+            202.0
+          ],
+          [
+            353.0,
+            198.0
+          ],
+          [
+            349.0,
+            201.0
+          ],
+          [
+            321.0,
+            199.0
+          ],
+          [
+            317.0,
+            204.0
+          ],
+          [
+            307.0,
+            198.0
+          ],
+          [
+            298.0,
+            204.0
+          ],
+          [
+            294.0,
+            201.0
+          ],
+          [
+            291.0,
+            203.0
+          ],
+          [
+            283.0,
+            199.0
+          ],
+          [
+            278.0,
+            203.0
+          ],
+          [
+            272.0,
+            199.0
+          ],
+          [
+            263.0,
+            201.0
+          ],
+          [
+            255.0,
+            197.0
+          ]
+        ],
+        "polygon_geo": [
+          [
+            702500.0,
+            2098010.0
+          ],
+          [
+            702520.0,
+            2097940.0
+          ],
+          [
+            702480.0,
+            2097870.0
+          ],
+          [
+            702510.0,
+            2097810.0
+          ],
+          [
+            702580.0,
+            2097810.0
+          ],
+          [
+            702620.0,
+            2097780.0
+          ],
+          [
+            702610.0,
+            2097750.0
+          ],
+          [
+            702480.0,
+            2097690.0
+          ],
+          [
+            702470.0,
+            2097520.0
+          ],
+          [
+            702500.0,
+            2097500.0
+          ],
+          [
+            702490.0,
+            2097420.0
+          ],
+          [
+            702520.0,
+            2097400.0
+          ],
+          [
+            702500.0,
+            2097260.0
+          ],
+          [
+            702620.0,
+            2097240.0
+          ],
+          [
+            702610.0,
+            2097180.0
+          ],
+          [
+            702480.0,
+            2097150.0
+          ],
+          [
+            702470.0,
+            2097060.0
+          ],
+          [
+            702560.0,
+            2096960.0
+          ],
+          [
+            702600.0,
+            2097000.0
+          ],
+          [
+            702590.0,
+            2097030.0
+          ],
+          [
+            702640.0,
+            2097070.0
+          ],
+          [
+            702670.0,
+            2097050.0
+          ],
+          [
+            702760.0,
+            2097070.0
+          ],
+          [
+            702900.0,
+            2096990.0
+          ],
+          [
+            702970.0,
+            2096990.0
+          ],
+          [
+            703010.0,
+            2097020.0
+          ],
+          [
+            703080.0,
+            2096990.0
+          ],
+          [
+            703140.0,
+            2097030.0
+          ],
+          [
+            703230.0,
+            2097000.0
+          ],
+          [
+            703250.0,
+            2097020.0
+          ],
+          [
+            703250.0,
+            2097100.0
+          ],
+          [
+            703280.0,
+            2097120.0
+          ],
+          [
+            703310.0,
+            2097100.0
+          ],
+          [
+            703350.0,
+            2096970.0
+          ],
+          [
+            703450.0,
+            2097000.0
+          ],
+          [
+            703560.0,
+            2096990.0
+          ],
+          [
+            703520.0,
+            2097050.0
+          ],
+          [
+            703610.0,
+            2097130.0
+          ],
+          [
+            703600.0,
+            2097170.0
+          ],
+          [
+            703620.0,
+            2097190.0
+          ],
+          [
+            703560.0,
+            2097200.0
+          ],
+          [
+            703500.0,
+            2097170.0
+          ],
+          [
+            703410.0,
+            2097210.0
+          ],
+          [
+            703380.0,
+            2097200.0
+          ],
+          [
+            703350.0,
+            2097240.0
+          ],
+          [
+            703390.0,
+            2097280.0
+          ],
+          [
+            703430.0,
+            2097260.0
+          ],
+          [
+            703510.0,
+            2097310.0
+          ],
+          [
+            703560.0,
+            2097300.0
+          ],
+          [
+            703590.0,
+            2097260.0
+          ],
+          [
+            703630.0,
+            2097290.0
+          ],
+          [
+            703600.0,
+            2097320.0
+          ],
+          [
+            703540.0,
+            2097330.0
+          ],
+          [
+            703520.0,
+            2097510.0
+          ],
+          [
+            703560.0,
+            2097580.0
+          ],
+          [
+            703500.0,
+            2097620.0
+          ],
+          [
+            703510.0,
+            2097690.0
+          ],
+          [
+            703570.0,
+            2097790.0
+          ],
+          [
+            703560.0,
+            2097880.0
+          ],
+          [
+            703630.0,
+            2097920.0
+          ],
+          [
+            703610.0,
+            2098000.0
+          ],
+          [
+            703570.0,
+            2097980.0
+          ],
+          [
+            703530.0,
+            2098020.0
+          ],
+          [
+            703490.0,
+            2097990.0
+          ],
+          [
+            703210.0,
+            2098010.0
+          ],
+          [
+            703170.0,
+            2097960.0
+          ],
+          [
+            703070.0,
+            2098020.0
+          ],
+          [
+            702980.0,
+            2097960.0
+          ],
+          [
+            702940.0,
+            2097990.0
+          ],
+          [
+            702910.0,
+            2097970.0
+          ],
+          [
+            702830.0,
+            2098010.0
+          ],
+          [
+            702780.0,
+            2097970.0
+          ],
+          [
+            702720.0,
+            2098010.0
+          ],
+          [
+            702630.0,
+            2097990.0
+          ],
+          [
+            702550.0,
+            2098030.0
+          ]
+        ],
+        "centroid_geo": [
+          703028.393977,
+          2097512.592463
+        ],
+        "score": 0.5702,
+        "sector_overlap": null
+      },
+      {
+        "id": 2,
+        "pixel_area": 69,
+        "area_m2": 6900.0,
+        "bbox_pixel": [
+          101,
+          259,
+          118,
+          275
+        ],
+        "bbox_geo": [
+          701010.0,
+          2097260.0,
+          701170.0,
+          2097410.0
+        ],
+        "polygon_pixel": [
+          [
+            102.0,
+            259.0
+          ],
+          [
+            101.0,
+            262.0
+          ],
+          [
+            106.0,
+            268.0
+          ],
+          [
+            116.0,
+            274.0
+          ],
+          [
+            117.0,
+            272.0
+          ],
+          [
+            112.0,
+            270.0
+          ]
+        ],
+        "polygon_geo": [
+          [
+            701020.0,
+            2097410.0
+          ],
+          [
+            701010.0,
+            2097380.0
+          ],
+          [
+            701060.0,
+            2097320.0
+          ],
+          [
+            701160.0,
+            2097260.0
+          ],
+          [
+            701170.0,
+            2097280.0
+          ],
+          [
+            701120.0,
+            2097300.0
+          ]
+        ],
+        "centroid_geo": [
+          701076.947368,
+          2097332.807018
+        ],
+        "score": 0.5499,
+        "sector_overlap": null
+      },
+      {
+        "id": 3,
+        "pixel_area": 64,
+        "area_m2": 6400.0,
+        "bbox_pixel": [
+          321,
+          442,
+          335,
+          462
+        ],
+        "bbox_geo": [
+          703220.0,
+          2095390.0,
+          703330.0,
+          2095580.0
+        ],
+        "polygon_pixel": [
+          [
+            322.0,
+            442.0
+          ],
+          [
+            322.0,
+            445.0
+          ],
+          [
+            330.0,
+            455.0
+          ],
+          [
+            330.0,
+            459.0
+          ],
+          [
+            333.0,
+            461.0
+          ],
+          [
+            330.0,
+            451.0
+          ]
+        ],
+        "polygon_geo": [
+          [
+            703220.0,
+            2095580.0
+          ],
+          [
+            703220.0,
+            2095550.0
+          ],
+          [
+            703300.0,
+            2095450.0
+          ],
+          [
+            703300.0,
+            2095410.0
+          ],
+          [
+            703330.0,
+            2095390.0
+          ],
+          [
+            703300.0,
+            2095490.0
+          ]
+        ],
+        "centroid_geo": [
+          703276.333333,
+          2095489.666667
+        ],
+        "score": 0.5452,
+        "sector_overlap": null
+      },
+      {
+        "id": 4,
+        "pixel_area": 57,
+        "area_m2": 5700.0,
+        "bbox_pixel": [
+          357,
+          96,
+          363,
+          114
+        ],
+        "bbox_geo": [
+          703570.0,
+          2098870.0,
+          703620.0,
+          2099040.0
+        ],
+        "polygon_pixel": [
+          [
+            358.0,
+            96.0
+          ],
+          [
+            360.0,
+            104.0
+          ],
+          [
+            357.0,
+            112.0
+          ],
+          [
+            359.0,
+            113.0
+          ],
+          [
+            362.0,
+            108.0
+          ],
+          [
+            362.0,
+            102.0
+          ]
+        ],
+        "polygon_geo": [
+          [
+            703580.0,
+            2099040.0
+          ],
+          [
+            703600.0,
+            2098960.0
+          ],
+          [
+            703570.0,
+            2098880.0
+          ],
+          [
+            703590.0,
+            2098870.0
+          ],
+          [
+            703620.0,
+            2098920.0
+          ],
+          [
+            703620.0,
+            2098980.0
+          ]
+        ],
+        "centroid_geo": [
+          703599.726027,
+          2098940.228311
+        ],
+        "score": 0.5515,
+        "sector_overlap": null
+      },
+      {
+        "id": 5,
+        "pixel_area": 52,
+        "area_m2": 5200.0,
+        "bbox_pixel": [
+          88,
+          216,
+          97,
+          236
+        ],
+        "bbox_geo": [
+          700880.0,
+          2097650.0,
+          700960.0,
+          2097840.0
+        ],
+        "polygon_pixel": [
+          [
+            96.0,
+            216.0
+          ],
+          [
+            92.0,
+            220.0
+          ],
+          [
+            93.0,
+            224.0
+          ],
+          [
+            88.0,
+            232.0
+          ],
+          [
+            89.0,
+            235.0
+          ],
+          [
+            92.0,
+            234.0
+          ],
+          [
+            91.0,
+            228.0
+          ],
+          [
+            94.0,
+            225.0
+          ],
+          [
+            93.0,
+            221.0
+          ]
+        ],
+        "polygon_geo": [
+          [
+            700960.0,
+            2097840.0
+          ],
+          [
+            700920.0,
+            2097800.0
+          ],
+          [
+            700930.0,
+            2097760.0
+          ],
+          [
+            700880.0,
+            2097680.0
+          ],
+          [
+            700890.0,
+            2097650.0
+          ],
+          [
+            700920.0,
+            2097660.0
+          ],
+          [
+            700910.0,
+            2097720.0
+          ],
+          [
+            700940.0,
+            2097750.0
+          ],
+          [
+            700930.0,
+            2097790.0
+          ]
+        ],
+        "centroid_geo": [
+          700912.5,
+          2097718.035714
+        ],
+        "score": 0.5463,
+        "sector_overlap": null
+      },
+      {
+        "id": 6,
+        "pixel_area": 52,
+        "area_m2": 5200.0,
+        "bbox_pixel": [
+          198,
+          220,
+          210,
+          241
+        ],
+        "bbox_geo": [
+          701980.0,
+          2097600.0,
+          702090.0,
+          2097800.0
+        ],
+        "polygon_pixel": [
+          [
+            200.0,
+            220.0
+          ],
+          [
+            198.0,
+            222.0
+          ],
+          [
+            203.0,
+            225.0
+          ],
+          [
+            208.0,
+            240.0
+          ],
+          [
+            209.0,
+            236.0
+          ]
+        ],
+        "polygon_geo": [
+          [
+            702000.0,
+            2097800.0
+          ],
+          [
+            701980.0,
+            2097780.0
+          ],
+          [
+            702030.0,
+            2097750.0
+          ],
+          [
+            702080.0,
+            2097600.0
+          ],
+          [
+            702090.0,
+            2097640.0
+          ]
+        ],
+        "centroid_geo": [
+          702047.222222,
+          2097696.944444
+        ],
+        "score": 0.548,
+        "sector_overlap": null
+      },
+      {
+        "id": 7,
+        "pixel_area": 48,
+        "area_m2": 4800.0,
+        "bbox_pixel": [
+          366,
+          62,
+          374,
+          81
+        ],
+        "bbox_geo": [
+          703660.0,
+          2099200.0,
+          703720.0,
+          2099380.0
+        ],
+        "polygon_pixel": [
+          [
+            367.0,
+            62.0
+          ],
+          [
+            366.0,
+            66.0
+          ],
+          [
+            370.0,
+            73.0
+          ],
+          [
+            369.0,
+            78.0
+          ],
+          [
+            372.0,
+            80.0
+          ]
+        ],
+        "polygon_geo": [
+          [
+            703670.0,
+            2099380.0
+          ],
+          [
+            703660.0,
+            2099340.0
+          ],
+          [
+            703700.0,
+            2099270.0
+          ],
+          [
+            703690.0,
+            2099220.0
+          ],
+          [
+            703720.0,
+            2099200.0
+          ]
+        ],
+        "centroid_geo": [
+          703688.211382,
+          2099287.398374
+        ],
+        "score": 0.5476,
+        "sector_overlap": null
+      },
+      {
+        "id": 8,
+        "pixel_area": 43,
+        "area_m2": 4300.0,
+        "bbox_pixel": [
+          354,
+          475,
+          364,
+          490
+        ],
+        "bbox_geo": [
+          703540.0,
+          2095110.0,
+          703620.0,
+          2095250.0
+        ],
+        "polygon_pixel": [
+          [
+            356.0,
+            475.0
+          ],
+          [
+            354.0,
+            478.0
+          ],
+          [
+            362.0,
+            489.0
+          ]
+        ],
+        "polygon_geo": [
+          [
+            703560.0,
+            2095250.0
+          ],
+          [
+            703540.0,
+            2095220.0
+          ],
+          [
+            703620.0,
+            2095110.0
+          ]
+        ],
+        "centroid_geo": [
+          703573.333333,
+          2095193.333333
+        ],
+        "score": 0.5444,
+        "sector_overlap": null
+      },
+      {
+        "id": 9,
+        "pixel_area": 41,
+        "area_m2": 4100.0,
+        "bbox_pixel": [
+          26,
+          331,
+          29,
+          350
+        ],
+        "bbox_geo": [
+          700260.0,
+          2096500.0,
+          700290.0,
+          2096690.0
+        ],
+        "polygon_pixel": [
+          [
+            26,
+            331
+          ],
+          [
+            29,
+            331
+          ],
+          [
+            29,
+            350
+          ],
+          [
+            26,
+            350
+          ]
+        ],
+        "polygon_geo": [
+          [
+            700260.0,
+            2096690.0
+          ],
+          [
+            700290.0,
+            2096690.0
+          ],
+          [
+            700290.0,
+            2096500.0
+          ],
+          [
+            700260.0,
+            2096500.0
+          ]
+        ],
+        "centroid_geo": [
+          700275.0,
+          2096595.0
+        ],
+        "score": 0.5529,
+        "sector_overlap": null
+      },
+      {
+        "id": 10,
+        "pixel_area": 39,
+        "area_m2": 3900.0,
+        "bbox_pixel": [
+          372,
+          102,
+          377,
+          114
+        ],
+        "bbox_geo": [
+          703720.0,
+          2098870.0,
+          703760.0,
+          2098980.0
+        ],
+        "polygon_pixel": [
+          [
+            375.0,
+            102.0
+          ],
+          [
+            372.0,
+            105.0
+          ],
+          [
+            373.0,
+            113.0
+          ],
+          [
+            376.0,
+            111.0
+          ]
+        ],
+        "polygon_geo": [
+          [
+            703750.0,
+            2098980.0
+          ],
+          [
+            703720.0,
+            2098950.0
+          ],
+          [
+            703730.0,
+            2098870.0
+          ],
+          [
+            703760.0,
+            2098890.0
+          ]
+        ],
+        "centroid_geo": [
+          703740.238095,
+          2098922.97619
+        ],
+        "score": 0.5477,
+        "sector_overlap": null
+      },
+      {
+        "id": 11,
+        "pixel_area": 39,
+        "area_m2": 3900.0,
+        "bbox_pixel": [
+          92,
+          244,
+          99,
+          255
+        ],
+        "bbox_geo": [
+          700920.0,
+          2097460.0,
+          700980.0,
+          2097560.0
+        ],
+        "polygon_pixel": [
+          [
+            94.0,
+            244.0
+          ],
+          [
+            92.0,
+            248.0
+          ],
+          [
+            97.0,
+            254.0
+          ],
+          [
+            98.0,
+            252.0
+          ]
+        ],
+        "polygon_geo": [
+          [
+            700940.0,
+            2097560.0
+          ],
+          [
+            700920.0,
+            2097520.0
+          ],
+          [
+            700970.0,
+            2097460.0
+          ],
+          [
+            700980.0,
+            2097480.0
+          ]
+        ],
+        "centroid_geo": [
+          700950.0,
+          2097508.888889
+        ],
+        "score": 0.5472,
+        "sector_overlap": null
+      },
+      {
+        "id": 12,
+        "pixel_area": 37,
+        "area_m2": 3700.0,
+        "bbox_pixel": [
+          363,
+          494,
+          370,
+          507
+        ],
+        "bbox_geo": [
+          703630.0,
+          2094940.0,
+          703690.0,
+          2095060.0
+        ],
+        "polygon_pixel": [
+          [
+            364.0,
+            494.0
+          ],
+          [
+            363.0,
+            498.0
+          ],
+          [
+            367.0,
+            506.0
+          ],
+          [
+            369.0,
+            502.0
+          ],
+          [
+            365.0,
+            499.0
+          ]
+        ],
+        "polygon_geo": [
+          [
+            703640.0,
+            2095060.0
+          ],
+          [
+            703630.0,
+            2095020.0
+          ],
+          [
+            703670.0,
+            2094940.0
+          ],
+          [
+            703690.0,
+            2094980.0
+          ],
+          [
+            703650.0,
+            2095010.0
+          ]
+        ],
+        "centroid_geo": [
+          703658.139535,
+          2094991.550388
+        ],
+        "score": 0.5542,
+        "sector_overlap": null
+      },
+      {
+        "id": 13,
+        "pixel_area": 36,
+        "area_m2": 3600.0,
+        "bbox_pixel": [
+          158,
+          195,
+          169,
+          201
+        ],
+        "bbox_geo": [
+          701580.0,
+          2098000.0,
+          701680.0,
+          2098050.0
+        ],
+        "polygon_pixel": [
+          [
+            158.0,
+            198.0
+          ],
+          [
+            163.0,
+            200.0
+          ],
+          [
+            168.0,
+            198.0
+          ],
+          [
+            161.0,
+            195.0
+          ]
+        ],
+        "polygon_geo": [
+          [
+            701580.0,
+            2098020.0
+          ],
+          [
+            701630.0,
+            2098000.0
+          ],
+          [
+            701680.0,
+            2098020.0
+          ],
+          [
+            701610.0,
+            2098050.0
+          ]
+        ],
+        "centroid_geo": [
+          701626.0,
+          2098023.333333
+        ],
+        "score": 0.549,
+        "sector_overlap": null
+      },
+      {
+        "id": 14,
+        "pixel_area": 34,
+        "area_m2": 3400.0,
+        "bbox_pixel": [
+          302,
+          403,
+          309,
+          414
+        ],
+        "bbox_geo": [
+          703030.0,
+          2095870.0,
+          703080.0,
+          2095970.0
+        ],
+        "polygon_pixel": [
+          [
+            303.0,
+            403.0
+          ],
+          [
+            304.0,
+            410.0
+          ],
+          [
+            307.0,
+            413.0
+          ],
+          [
+            308.0,
+            410.0
+          ]
+        ],
+        "polygon_geo": [
+          [
+            703030.0,
+            2095970.0
+          ],
+          [
+            703040.0,
+            2095900.0
+          ],
+          [
+            703070.0,
+            2095870.0
+          ],
+          [
+            703080.0,
+            2095900.0
+          ]
+        ],
+        "centroid_geo": [
+          703054.0,
+          2095913.333333
+        ],
+        "score": 0.546,
+        "sector_overlap": null
+      },
+      {
+        "id": 15,
+        "pixel_area": 33,
+        "area_m2": 3300.0,
+        "bbox_pixel": [
+          206,
+          81,
+          210,
+          93
+        ],
+        "bbox_geo": [
+          702070.0,
+          2099080.0,
+          702090.0,
+          2099190.0
+        ],
+        "polygon_pixel": [
+          [
+            207.0,
+            81.0
+          ],
+          [
+            207.0,
+            92.0
+          ],
+          [
+            209.0,
+            88.0
+          ]
+        ],
+        "polygon_geo": [
+          [
+            702070.0,
+            2099190.0
+          ],
+          [
+            702070.0,
+            2099080.0
+          ],
+          [
+            702090.0,
+            2099120.0
+          ]
+        ],
+        "centroid_geo": [
+          702076.666667,
+          2099130.0
+        ],
+        "score": 0.5484,
+        "sector_overlap": null
+      },
+      {
+        "id": 16,
+        "pixel_area": 33,
+        "area_m2": 3300.0,
+        "bbox_pixel": [
+          135,
+          192,
+          145,
+          198
+        ],
+        "bbox_geo": [
+          701350.0,
+          2098030.0,
+          701440.0,
+          2098080.0
+        ],
+        "polygon_pixel": [
+          [
+            135.0,
+            194.0
+          ],
+          [
+            140.0,
+            197.0
+          ],
+          [
+            144.0,
+            195.0
+          ],
+          [
+            137.0,
+            192.0
+          ]
+        ],
+        "polygon_geo": [
+          [
+            701350.0,
+            2098060.0
+          ],
+          [
+            701400.0,
+            2098030.0
+          ],
+          [
+            701440.0,
+            2098050.0
+          ],
+          [
+            701370.0,
+            2098080.0
+          ]
+        ],
+        "centroid_geo": [
+          701391.904762,
+          2098054.603175
+        ],
+        "score": 0.5471,
+        "sector_overlap": null
+      },
+      {
+        "id": 17,
+        "pixel_area": 33,
+        "area_m2": 3300.0,
+        "bbox_pixel": [
+          298,
+          317,
+          303,
+          331
+        ],
+        "bbox_geo": [
+          702990.0,
+          2096700.0,
+          703020.0,
+          2096830.0
+        ],
+        "polygon_pixel": [
+          [
+            301.0,
+            317.0
+          ],
+          [
+            299.0,
+            330.0
+          ],
+          [
+            302.0,
+            323.0
+          ]
+        ],
+        "polygon_geo": [
+          [
+            703010.0,
+            2096830.0
+          ],
+          [
+            702990.0,
+            2096700.0
+          ],
+          [
+            703020.0,
+            2096770.0
+          ]
+        ],
+        "centroid_geo": [
+          703006.666667,
+          2096766.666667
+        ],
+        "score": 0.5495,
+        "sector_overlap": null
+      },
+      {
+        "id": 18,
+        "pixel_area": 32,
+        "area_m2": 3200.0,
+        "bbox_pixel": [
+          316,
+          402,
+          324,
+          414
+        ],
+        "bbox_geo": [
+          703170.0,
+          2095870.0,
+          703230.0,
+          2095980.0
+        ],
+        "polygon_pixel": [
+          [
+            317.0,
+            402.0
+          ],
+          [
+            321.0,
+            413.0
+          ],
+          [
+            323.0,
+            411.0
+          ]
+        ],
+        "polygon_geo": [
+          [
+            703170.0,
+            2095980.0
+          ],
+          [
+            703210.0,
+            2095870.0
+          ],
+          [
+            703230.0,
+            2095890.0
+          ]
+        ],
+        "centroid_geo": [
+          703203.333333,
+          2095913.333333
+        ],
+        "score": 0.552,
+        "sector_overlap": null
+      },
+      {
+        "id": 19,
+        "pixel_area": 29,
+        "area_m2": 2900.0,
+        "bbox_pixel": [
+          352,
+          68,
+          358,
+          78
+        ],
+        "bbox_geo": [
+          703530.0,
+          2099230.0,
+          703570.0,
+          2099320.0
+        ],
+        "polygon_pixel": [
+          [
+            353.0,
+            68.0
+          ],
+          [
+            355.0,
+            71.0
+          ],
+          [
+            354.0,
+            76.0
+          ],
+          [
+            356.0,
+            77.0
+          ],
+          [
+            357.0,
+            73.0
+          ]
+        ],
+        "polygon_geo": [
+          [
+            703530.0,
+            2099320.0
+          ],
+          [
+            703550.0,
+            2099290.0
+          ],
+          [
+            703540.0,
+            2099240.0
+          ],
+          [
+            703560.0,
+            2099230.0
+          ],
+          [
+            703570.0,
+            2099270.0
+          ]
+        ],
+        "centroid_geo": [
+          703554.347826,
+          2099261.15942
+        ],
+        "score": 0.5539,
+        "sector_overlap": null
+      },
+      {
+        "id": 20,
+        "pixel_area": 27,
+        "area_m2": 2700.0,
+        "bbox_pixel": [
+          277,
+          26,
+          290,
+          29
+        ],
+        "bbox_geo": [
+          702770.0,
+          2099710.0,
+          702900.0,
+          2099740.0
+        ],
+        "polygon_pixel": [
+          [
+            277,
+            26
+          ],
+          [
+            290,
+            26
+          ],
+          [
+            290,
+            29
+          ],
+          [
+            277,
+            29
+          ]
+        ],
+        "polygon_geo": [
+          [
+            702770.0,
+            2099740.0
+          ],
+          [
+            702900.0,
+            2099740.0
+          ],
+          [
+            702900.0,
+            2099710.0
+          ],
+          [
+            702770.0,
+            2099710.0
+          ]
+        ],
+        "centroid_geo": [
+          702835.0,
+          2099725.0
+        ],
+        "score": 0.5545,
+        "sector_overlap": null
+      },
+      {
+        "id": 21,
+        "pixel_area": 27,
+        "area_m2": 2700.0,
+        "bbox_pixel": [
+          358,
+          346,
+          368,
+          354
+        ],
+        "bbox_geo": [
+          703580.0,
+          2096480.0,
+          703670.0,
+          2096530.0
+        ],
+        "polygon_pixel": [
+          [
+            367.0,
+            347.0
+          ],
+          [
+            358.0,
+            352.0
+          ],
+          [
+            365.0,
+            350.0
+          ]
+        ],
+        "polygon_geo": [
+          [
+            703670.0,
+            2096530.0
+          ],
+          [
+            703580.0,
+            2096480.0
+          ],
+          [
+            703650.0,
+            2096500.0
+          ]
+        ],
+        "centroid_geo": [
+          703633.333333,
+          2096503.333333
+        ],
+        "score": 0.5471,
+        "sector_overlap": null
+      },
+      {
+        "id": 22,
+        "pixel_area": 26,
+        "area_m2": 2600.0,
+        "bbox_pixel": [
+          263,
+          25,
+          275,
+          29
+        ],
+        "bbox_geo": [
+          702630.0,
+          2099720.0,
+          702740.0,
+          2099740.0
+        ],
+        "polygon_pixel": [
+          [
+            263.0,
+            26.0
+          ],
+          [
+            264.0,
+            28.0
+          ],
+          [
+            274.0,
+            27.0
+          ]
+        ],
+        "polygon_geo": [
+          [
+            702630.0,
+            2099740.0
+          ],
+          [
+            702640.0,
+            2099720.0
+          ],
+          [
+            702740.0,
+            2099730.0
+          ]
+        ],
+        "centroid_geo": [
+          702670.0,
+          2099730.0
+        ],
+        "score": 0.5527,
+        "sector_overlap": null
+      },
+      {
+        "id": 23,
+        "pixel_area": 26,
+        "area_m2": 2600.0,
+        "bbox_pixel": [
+          371,
+          129,
+          377,
+          140
+        ],
+        "bbox_geo": [
+          703710.0,
+          2098610.0,
+          703750.0,
+          2098710.0
+        ],
+        "polygon_pixel": [
+          [
+            375.0,
+            129.0
+          ],
+          [
+            371.0,
+            137.0
+          ],
+          [
+            373.0,
+            139.0
+          ]
+        ],
+        "polygon_geo": [
+          [
+            703750.0,
+            2098710.0
+          ],
+          [
+            703710.0,
+            2098630.0
+          ],
+          [
+            703730.0,
+            2098610.0
+          ]
+        ],
+        "centroid_geo": [
+          703730.0,
+          2098650.0
+        ],
+        "score": 0.5497,
+        "sector_overlap": null
+      },
+      {
+        "id": 24,
+        "pixel_area": 26,
+        "area_m2": 2600.0,
+        "bbox_pixel": [
+          155,
+          152,
+          167,
+          156
+        ],
+        "bbox_geo": [
+          701550.0,
+          2098450.0,
+          701660.0,
+          2098480.0
+        ],
+        "polygon_pixel": [
+          [
+            155.0,
+            153.0
+          ],
+          [
+            158.0,
+            155.0
+          ],
+          [
+            166.0,
+            154.0
+          ],
+          [
+            162.0,
+            152.0
+          ]
+        ],
+        "polygon_geo": [
+          [
+            701550.0,
+            2098470.0
+          ],
+          [
+            701580.0,
+            2098450.0
+          ],
+          [
+            701660.0,
+            2098460.0
+          ],
+          [
+            701620.0,
+            2098480.0
+          ]
+        ],
+        "centroid_geo": [
+          701603.153153,
+          2098464.864865
+        ],
+        "score": 0.5453,
+        "sector_overlap": null
+      },
+      {
+        "id": 25,
+        "pixel_area": 26,
+        "area_m2": 2600.0,
+        "bbox_pixel": [
+          199,
+          264,
+          205,
+          273
+        ],
+        "bbox_geo": [
+          701990.0,
+          2097280.0,
+          702040.0,
+          2097360.0
+        ],
+        "polygon_pixel": [
+          [
+            203.0,
+            264.0
+          ],
+          [
+            199.0,
+            268.0
+          ],
+          [
+            200.0,
+            272.0
+          ],
+          [
+            204.0,
+            266.0
+          ]
+        ],
+        "polygon_geo": [
+          [
+            702030.0,
+            2097360.0
+          ],
+          [
+            701990.0,
+            2097320.0
+          ],
+          [
+            702000.0,
+            2097280.0
+          ],
+          [
+            702040.0,
+            2097340.0
+          ]
+        ],
+        "centroid_geo": [
+          702013.529412,
+          2097322.745098
+        ],
+        "score": 0.5546,
+        "sector_overlap": null
+      }
+    ],
+    "excluded": {},
+    "evidence": {
+      "classification_method": "spectral-indices",
+      "indices_used": [
+        "mndwi",
+        "ndvi",
+        "ndbi"
+      ],
+      "class_separability": 0.8777,
+      "region_score_index": "ndbi",
+      "candidate_regions": 25,
+      "min_region_pixels": 25,
+      "min_region_area_m2": 2500.0,
+      "sector_selection": null
+    },
+    "warnings": [
+      "The number of separate areas cannot be stated reliably from this image alone. Built-up land and bare soil are both bright in the short-wave infrared, so the boundary between them is inferred from surface texture rather than measured directly, and neighbouring patches merge into one another wherever that texture cue is weak. The mapped extent and the total area are unaffected; only the number of separate regions is. Radar measures that boundary directly, through the double-bounce return from vertical structure, so supplying a co-registered SAR image of the same area makes the count reportable."
+    ]
+  },
+  "inputs": [
+    {
+      "filename": "scene_optical.tif",
+      "driver": "GTiff",
+      "width": 512,
+      "height": 512,
+      "bands": 6,
+      "dtype": "uint16",
+      "crs": "EPSG:32643",
+      "crs_epsg": 32643,
+      "transform": [
+        10.0,
+        0.0,
+        700000.0,
+        0.0,
+        -10.0,
+        2100000.0
+      ],
+      "bounds": [
+        700000.0,
+        2094880.0,
+        705120.0,
+        2100000.0
+      ],
+      "nodata": null,
+      "pixel_size": [
+        10.0,
+        10.0
+      ],
+      "georeferenced": true,
+      "band_descriptions": [
+        "blue",
+        "green",
+        "red",
+        "nir",
+        "swir1",
+        "swir2"
+      ],
+      "decimation": 1.0,
+      "modality": "optical",
+      "band_roles": [
+        "blue",
+        "green",
+        "red",
+        "nir",
+        "swir1",
+        "swir2"
+      ],
+      "bounds_wgs84": {
+        "south": 18.936019982475173,
+        "west": 76.89924389576537,
+        "north": 18.982771612515812,
+        "east": 76.94838114083183
+      }
+    }
+  ],
+  "trace": [
+    {
+      "step": "classify",
+      "tool": null,
+      "status": "ok",
+      "duration_ms": 0.0,
+      "summary": "Query routed to the grounding task by deterministic keyword/shape rules (1 image(s), modalities ['optical']).",
+      "parameters": {
+        "task": "grounding"
+      },
+      "warnings": []
+    },
+    {
+      "step": "validate",
+      "tool": "grounding-spectral-cv",
+      "status": "ok",
+      "duration_ms": 0.0,
+      "summary": "Inputs accepted: modality and image count satisfy the tool's preconditions.",
+      "parameters": {
+        "images": 1,
+        "modalities": [
+          "optical"
+        ]
+      },
+      "warnings": []
+    },
+    {
+      "step": "preprocess",
+      "tool": "grounding-spectral-cv",
+      "status": "ok",
+      "duration_ms": 52.51,
+      "summary": "Inputs inspected and readied (quality assessed; any pair aligned to a common grid).",
+      "parameters": {
+        "input_quality": 0.9895
+      },
+      "warnings": []
+    },
+    {
+      "step": "execute",
+      "tool": "grounding-spectral-cv",
+      "status": "ok",
+      "duration_ms": 301.2,
+      "summary": "Ran grounding-spectral-cv (classical tier) over the prepared raster(s).",
+      "parameters": {
+        "tier": "classical"
+      },
+      "warnings": []
+    },
+    {
+      "step": "score",
+      "tool": "grounding-spectral-cv",
+      "status": "warning",
+      "duration_ms": 1.38,
+      "summary": "Confidence computed from measured evidence and the answer phrased from those measurements.",
+      "parameters": {
+        "confidence": "high",
+        "score": 0.8777
+      },
+      "warnings": []
+    },
+    {
+      "step": "verify",
+      "tool": null,
+      "status": "ok",
+      "duration_ms": 0.0,
+      "summary": "Evidence sufficient to release the answer.",
+      "parameters": {
+        "sufficient": true
+      },
+      "warnings": []
+    }
+  ],
+  "artifacts": [
+    {
+      "kind": "base",
+      "label": "Input image",
+      "url": "/fixtures/SAT-2026-000103/base.png",
+      "bounds_wgs84": {
+        "south": 18.936019982475173,
+        "west": 76.89924389576537,
+        "north": 18.982771612515812,
+        "east": 76.94838114083183
+      },
+      "legend": []
+    },
+    {
+      "kind": "grounding",
+      "label": "Grounded regions",
+      "url": "/fixtures/SAT-2026-000103/overlay.png",
+      "bounds_wgs84": {
+        "south": 18.936019982475173,
+        "west": 76.89924389576537,
+        "north": 18.982771612515812,
+        "east": 76.94838114083183
+      },
+      "legend": [
+        {
+          "label": "Matched region",
+          "color": "#f0c81e",
+          "key": "highlight"
+        }
+      ]
+    }
+  ],
+  "fixture": true
+}

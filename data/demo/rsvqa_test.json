@@ -1,0 +1,74 @@
+{
+  "questions": [
+    {
+      "id": 1,
+      "img_name": "optical/scene_optical.tif",
+      "question": "What land cover types are present in this scene?",
+      "answer": "The scene is predominantly bare soil (69% of classified pixels). Class breakdown: bare soil 69%, vegetation 23%, water 4%.",
+      "type": "composition"
+    },
+    {
+      "id": 2,
+      "img_name": "optical/scene_optical.tif",
+      "question": "Is there water in this image?",
+      "answer": "Yes, water is present, covering 4% of the classified area (about 1.16 km\u00b2).",
+      "type": "presence"
+    },
+    {
+      "id": 3,
+      "img_name": "optical/scene_optical.tif",
+      "question": "What is the percentage of vegetation?",
+      "answer": "Vegetation covers 23% of the classified area (about 6.00 km\u00b2).",
+      "type": "quantity"
+    },
+    {
+      "id": 4,
+      "img_name": "optical/scene_optical.tif",
+      "question": "What is the percentage of bare soil?",
+      "answer": "Bare soil covers 69% of the classified area (about 18.03 km\u00b2).",
+      "type": "quantity"
+    },
+    {
+      "id": 5,
+      "img_name": "optical/scene_optical.tif",
+      "question": "Is there more vegetation or bare soil?",
+      "answer": "Bare soil covers more of the scene (69%) than vegetation (23%).",
+      "type": "comparison"
+    },
+    {
+      "id": 6,
+      "img_name": "optical/scene_optical.tif",
+      "question": "Is there more water or vegetation?",
+      "answer": "Vegetation covers more of the scene (23%) than water (4%).",
+      "type": "comparison"
+    },
+    {
+      "id": 7,
+      "img_name": "optical/scene_optical.tif",
+      "question": "Describe the scene composition.",
+      "answer": "The scene is predominantly bare soil (69% of classified pixels). Class breakdown: bare soil 69%, vegetation 23%, water 4%.",
+      "type": "composition"
+    },
+    {
+      "id": 8,
+      "img_name": "optical/scene_optical.tif",
+      "question": "What is the dominant land cover class?",
+      "answer": "Bare soil is the dominant class, covering 69% of the classified area.",
+      "type": "composition"
+    },
+    {
+      "id": 9,
+      "img_name": "optical/scene_optical.tif",
+      "question": "How much water is in the image?",
+      "answer": "Water covers 4% of the classified area (about 1.16 km\u00b2).",
+      "type": "quantity"
+    },
+    {
+      "id": 10,
+      "img_name": "optical/scene_optical.tif",
+      "question": "How much bare ground is present?",
+      "answer": "Bare soil covers 69% of the classified area (about 18.03 km\u00b2).",
+      "type": "quantity"
+    }
+  ]
+}
