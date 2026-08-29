@@ -29,7 +29,9 @@ describe('buildReportModel', () => {
   it('summarises a land-cover analysis with measured metrics', async () => {
     const model = await modelFor('SAT-2026-000101')
     expect(model.id).toBe('SAT-2026-000101')
-    expect(model.declined).toBe(false)
+    expect(model.withheld).toBe(false)
+    expect(model.unreliable).toBe(false)
+    expect(model.caveat).toBeNull()
 
     const section = findingsSection(model)
     expect(section.title).toMatch(/land-cover/i)

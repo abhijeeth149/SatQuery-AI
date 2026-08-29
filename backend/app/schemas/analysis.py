@@ -115,6 +115,41 @@ class EvidenceItem(BaseModel):
     unit: str | None = Field(default=None, description="Unit of `value`, e.g. 'km2', 'dB', 'percent'")
 
 
+class ConfidenceFactorSchema(BaseModel):
+    """One measured input to the confidence score, as computed by ``app.services.confidence``."""
+
+    name: str = Field(description="Stable identifier, e.g. 'corroboration', 'registration'")
+    value: float = Field(ge=0.0, le=1.0, description="The measurement mapped onto [0, 1]")
+    weight: float = Field(ge=0.0, description="Relative influence in the weighted mean")
+    kind: str = Field(description="'contributor' (averaged in) or 'gate' (also caps the score)")
+    reason: str = Field(description="Plain-language statement of what this factor says")
+
+
+class ConfidenceSchema(BaseModel):
+    """The full measured confidence report behind an answer (§27).
+
+    Only ``score`` and ``level`` used to be published, so a client had no access to *why* the score
+    was what it was, nor to the backend's own sufficiency verdict. The UI filled both gaps by
+    inventing them: three fixed reason strings ("Valid radiometric bounds", …) that no measurement
+    produced, and its own ``score >= 0.5`` sufficiency rule, which contradicted this backend on
+    every ``low`` answer — labelling a real, measured result "insufficient evidence", the one
+    misattribution §0 and §27 single out. Publishing the report removes the reason to guess.
+    """
+
+    level: ConfidenceLevel
+    score: float = Field(ge=0.0, le=1.0)
+    sufficient: bool = Field(
+        description="False only when the evidence cannot support any defensible claim"
+    )
+    limiting_factor: str | None = Field(
+        default=None, description="Name of the factor that bound the score; null if none was measured"
+    )
+    reasons: list[str] = Field(
+        default_factory=list, description="Factor reasons, weakest measurement first"
+    )
+    factors: list[ConfidenceFactorSchema] = Field(default_factory=list)
+
+
 class ExecutionTraceStep(BaseModel):
     """Individual step execution trace item."""
     step_index: int
@@ -140,6 +175,13 @@ class ExecutionTraceSchema(BaseModel):
     steps: list[ExecutionTraceStep]
     confidence_score: float
     confidence_level: ConfidenceLevel
+    confidence: ConfidenceSchema | None = Field(
+        default=None,
+        description=(
+            "The measured confidence report, stored with the trace so a re-read analysis keeps the "
+            "factors behind its score. Null only for rows persisted before this field existed"
+        ),
+    )
     evidence: list[EvidenceItem] = Field(
         default_factory=list,
         description=(
@@ -173,6 +215,9 @@ class AnalyzeResponse(BaseModel):
     answer: str
     confidence_score: float
     confidence_level: ConfidenceLevel
+    confidence: ConfidenceSchema = Field(
+        description="The measured confidence report: sufficiency verdict, limiting factor, factors"
+    )
     evidence: list[str] = Field(default_factory=list)
     structured_evidence: list[EvidenceItem] = Field(default_factory=list)
     execution_trace: ExecutionTraceSchema

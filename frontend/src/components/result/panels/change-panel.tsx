@@ -12,7 +12,13 @@ import {
   TableRow,
 } from '@/components/ui/table'
 import { changeTypeColor, changeTypeLabel, prettifyKey } from '@/lib/classes'
-import { formatArea, formatFractionPct, formatInt, formatPct } from '@/lib/format'
+import {
+  formatExtent,
+  formatFractionPct,
+  formatInt,
+  formatPct,
+  formatSignedFractionPct,
+} from '@/lib/format'
 import { ArrowRight, TrendingUp, TrendingDown, Minus } from 'lucide-react'
 
 function signed(n: number, digits = 0): string {
@@ -38,7 +44,7 @@ export function ChangePanel({ data, artifacts }: { data: ChangeData; artifacts?:
     color: changeTypeColor(t.change_type),
     fraction: t.fraction_of_change,
     valueLabel: formatPct(t.percentage_of_change),
-    hint: formatArea(t.area_m2),
+    hint: formatExtent(t.area_m2, t.pixel_count),
   }))
 
   const es = data.evidence_split
@@ -66,8 +72,14 @@ export function ChangePanel({ data, artifacts }: { data: ChangeData; artifacts?:
       <StatGrid>
         <Stat
           label="Changed area"
-          value={formatArea(data.changed_area_m2)}
-          hint={`${formatInt(data.changed_pixels)} px`}
+          // Without a pixel size there is no ground area, so the headline is the measurement that
+          // does exist. It used to headline "—" and bury the 100,620 measured pixels in the hint.
+          value={formatExtent(data.changed_area_m2, data.changed_pixels)}
+          hint={
+            data.changed_area_m2 === null
+              ? 'pixel count — no georeference, so no ground area'
+              : `${formatInt(data.changed_pixels)} px`
+          }
         />
         <Stat label="Changed" value={formatPct(data.changed_percentage)} hint="of valid pixels" />
         <Stat
@@ -106,7 +118,7 @@ export function ChangePanel({ data, artifacts }: { data: ChangeData; artifacts?:
             </span>
             <span className="text-muted-foreground">
               — {formatPct(data.dominant_transition.percentage_of_change)} of change ·{' '}
-              {formatArea(data.dominant_transition.area_m2)}
+              {formatExtent(data.dominant_transition.area_m2, data.dominant_transition.pixel_count)}
             </span>
           </p>
         </div>
@@ -171,15 +183,22 @@ export function ChangePanel({ data, artifacts }: { data: ChangeData; artifacts?:
                     {prettifyKey(d.class)}
                   </TableCell>
                   <TableCell className="text-right tabular-nums text-muted-foreground">
-                    {formatArea(d.area_m2_before)}
+                    {formatExtent(d.area_m2_before, d.pixels_before)}
                   </TableCell>
                   <TableCell className="text-right tabular-nums text-muted-foreground">
-                    {formatArea(d.area_m2_after)}
+                    {formatExtent(d.area_m2_after, d.pixels_after)}
                   </TableCell>
                   <TableCell className="text-right tabular-nums">
+                    {/*
+                     * The arrow reads `pixel_delta`, which is measured for every pair, and the
+                     * percentage carries its sign. Driving the arrow from `area_m2_delta` meant a
+                     * non-georeferenced pair (null area) fell through to the "no change" dash, so a
+                     * class that grew by 115.3% rendered as "— 115.3%" — indistinguishable from a
+                     * loss.
+                     */}
                     <span className="inline-flex items-center justify-end gap-1">
-                      <DeltaIcon value={d.area_m2_delta} />
-                      {formatFractionPct(d.relative_delta)}
+                      <DeltaIcon value={d.pixel_delta} />
+                      {formatSignedFractionPct(d.relative_delta)}
                     </span>
                   </TableCell>
                 </TableRow>
@@ -215,8 +234,17 @@ export function ChangePanel({ data, artifacts }: { data: ChangeData; artifacts?:
                   <TableCell className="text-right tabular-nums">
                     {signed(d.mean_delta_in_change, 3)}
                   </TableCell>
+                  {/*
+                   * Direction is a *count* of changed pixels moving each way, not the sign of the
+                   * mean beside it — that is the whole point of carrying it, since offsetting gains
+                   * and losses cancel a mean to nearly nothing. Shown alone it looked like a
+                   * contradiction ("+0.009 … Decrease"), so the measurement behind it is stated.
+                   */}
                   <TableCell className="text-muted-foreground">
                     {prettifyKey(d.direction)}
+                    <span className="ml-1 text-xs">
+                      · {formatFractionPct(d.increase_fraction)} of changed px rose
+                    </span>
                   </TableCell>
                 </TableRow>
               ))}

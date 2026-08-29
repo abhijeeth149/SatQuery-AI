@@ -20,6 +20,13 @@ export default defineConfig({
         target: process.env.VITE_API_PROXY_TARGET ?? 'http://localhost:8000',
         changeOrigin: true,
       },
+      // Upload previews are served by the backend's StaticFiles mount at /storage, and the upload
+      // response returns that path verbatim. Without this entry the <img> resolved against the Vite
+      // dev server instead, so every input thumbnail 404'd and rendered as a broken image.
+      '/storage': {
+        target: process.env.VITE_API_PROXY_TARGET ?? 'http://localhost:8000',
+        changeOrigin: true,
+      },
     },
   },
   build: {

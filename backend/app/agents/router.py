@@ -8,21 +8,33 @@ query and the images, so it owns the two decisions neither of the others can mak
 1. **Give ``UNKNOWN`` an input-aware default, or decline (§9).** The classifier returns
    :attr:`QueryTask.UNKNOWN` for a query with no task signal rather than forcing it into the nearest
    bucket. The router then reads the inputs: a single optical image with no question is a land-cover
-   overview, a single radar image is a SAR analysis, two optical images are a change comparison, an
-   optical+SAR pair is a fusion. When the inputs fit no analysis — no image, two SAR images, three or
-   more — it does **not** invent a workflow; it returns ``UNKNOWN`` flagged for clarification so the
-   orchestrator can ask the user what they meant. Guessing a workflow for a vague query is the exact
-   failure mode §9 forbids.
+   overview, a single radar image is a SAR analysis, two images of the same sensor family are a
+   change comparison, an optical+SAR pair is a fusion. When the inputs fit no analysis — no image, a
+   radar image beside one whose sensor could not be determined, three or more — it does **not**
+   invent a workflow; it returns ``UNKNOWN`` flagged for clarification so the orchestrator can ask
+   the user what they meant. Guessing a workflow for a vague query is the exact failure mode §9
+   forbids.
 
-2. **Reconcile a recognised task against the input modality (§5).** A task recognised from the text
-   is normally passed straight through — the registry validates the inputs and refuses honestly if
-   they do not fit (a SAR analysis asked of an optical image, say, is declined there with a redirect,
-   which is more honest than the router silently substituting a different analysis). The one override
-   the router applies is narrow and defensible: a general "what do you see / describe this" query
-   whose *only* input is a single SAR image is routed to SAR analysis, because the optical describer
-   cannot run on radar at all and the radar analyser answers the same general question. Specific
-   optical products — grounding, land-cover classification — are never silently swapped; they pass
-   through to an honest modality refusal.
+2. **Reconcile a recognised task against the actual inputs (§5).** A task recognised from the text is
+   normally passed straight through — the registry validates the inputs and refuses honestly if they
+   do not fit. But a *single-image* task recognised from the text when the user supplied a **pair** is
+   not a refusable request, it is a mis-scoped one: the pair mode has exactly one analysis defined for
+   it, and that analysis answers the same question from both inputs. Two overrides therefore apply:
+
+   * A general "what do you see / describe this" query whose *only* input is a single SAR image is
+     routed to SAR analysis, because the optical describer cannot run on radar at all and the radar
+     analyser answers the same general question.
+   * A scene-reading query — land cover, a visual question, a description, "where is X" — asked of two
+     images is routed to that pair's analysis: optical/SAR fusion for a cross-modal pair, change
+     analysis for two dates. Both of those *do* read the scene; fusion classifies land cover from
+     both sensors and change analysis classifies it at each date. Before this, such a query was
+     routed to the single-image tool and died at the contract gate with "works on exactly 1 image",
+     which told the user nothing about the analysis that would have answered them.
+
+   Neither override is silent: the source is :attr:`RouteSource.INPUT_OVERRIDE` and the reason names
+   the analysis that actually ran, so the substitution is visible in the trace, the answer and the
+   report rather than implied. Tasks no pair analysis subsumes (object detection, segmentation, a
+   report) still pass through to an honest refusal.
 
 The router never runs a tool and never fabricates a result. It produces a :class:`RouteDecision` —
 a task plus an auditable reason — that the orchestrator dispatches, and whose reason is surfaced in
@@ -46,6 +58,11 @@ if TYPE_CHECKING:  # typing only — keeps the router free of the geospatial imp
 
 logger = get_logger(__name__)
 
+#: How many inputs make a pair. Mirrors :data:`app.agents.modes.MAX_INPUTS`, which is the authority
+#: (a test asserts they are equal); duplicated as a literal here only to keep the router free of the
+#: geospatial import chain that :mod:`app.agents.modes` pulls in.
+MAX_PAIR_INPUTS = 2
+
 # Optical tasks whose question is a *general description* of the scene. These are the only recognised
 # tasks the router will re-point at SAR analysis when the sole input is radar, because the radar
 # analyser answers the same "what does this image show" question. Grounding and land-cover
@@ -54,6 +71,40 @@ logger = get_logger(__name__)
 _GENERAL_DESCRIPTION_TASKS: frozenset[QueryTask] = frozenset(
     {QueryTask.VQA, QueryTask.CAPTIONING}
 )
+
+# Single-image tasks a *pair* analysis genuinely subsumes, so that asking one of them of two images
+# is re-pointed at the pair analysis rather than rejected for the image count.
+#
+# Each of these asks "read this scene", and both pair tools read the scene: fusion classifies land
+# cover from the optical and radar evidence together and reports where the sensors disagree; change
+# analysis classifies land cover at each date and reports the transitions between them. So the
+# question is answered, from both inputs, by a different tool than the text alone implied — which the
+# reason string states outright.
+#
+# Deliberately excluded: OBJECT_DETECTION and SEGMENTATION (unimplemented at any image count — the
+# registry owns that refusal and redirects to real capabilities), and REPORT_GENERATION (served by
+# the report endpoint, not by an analysis run). Those still pass through untouched.
+_SCENE_READING_TASKS: frozenset[QueryTask] = frozenset(
+    {
+        QueryTask.LAND_COVER_ANALYSIS,
+        QueryTask.VQA,
+        QueryTask.CAPTIONING,
+        QueryTask.GROUNDING,
+    }
+)
+
+# What each pair analysis reports, for the reason string. Keyed by the task the override lands on so
+# the sentence describes the analysis that ran rather than a generic "the pair analysis".
+_PAIR_ANALYSIS_PHRASE: dict[QueryTask, str] = {
+    QueryTask.OPTICAL_SAR_ANALYSIS: (
+        "optical/SAR fusion, which classifies the scene from the optical and radar evidence "
+        "together and reports where the two sensors disagree"
+    ),
+    QueryTask.CHANGE_DETECTION: (
+        "bi-temporal change analysis, which classifies the scene at each date and reports the "
+        "transitions between them"
+    ),
+}
 
 # Human-readable labels for routing reasons, covering every task the classifier can emit.
 _TASK_LABEL: dict[QueryTask, str] = {
@@ -204,8 +255,8 @@ def route(
 
 
 def _reconcile(cls: Classification, profile: _InputProfile) -> RouteDecision:
-    """Route a text-recognised task, applying the single narrow input override (rule 2)."""
-    # Override: a general-description query whose only input is one SAR image -> SAR analysis. The
+    """Route a text-recognised task, applying the two input overrides (rule 2)."""
+    # Override 1: a general-description query whose only input is one SAR image -> SAR analysis. The
     # optical describer cannot run on radar, and the radar analyser answers the same question.
     if (
         cls.task in _GENERAL_DESCRIPTION_TASKS
@@ -222,6 +273,23 @@ def _reconcile(cls: Classification, profile: _InputProfile) -> RouteDecision:
             ),
             classification=cls,
         )
+
+    # Override 2: a scene-reading query asked of a pair -> that pair's analysis. Without this, the
+    # single-image tool is dispatched and the contract gate rejects the request for its image count,
+    # which names the wrong problem: the user's question is answerable, just not by that tool.
+    pair_task = _pair_task_for(cls.task, profile)
+    if pair_task is not None:
+        return RouteDecision(
+            task=pair_task,
+            source=RouteSource.INPUT_OVERRIDE,
+            reason=(
+                f"The query reads as {_TASK_LABEL[cls.task]}, which analyses a single scene, but two "
+                f"images were provided. It is routed to {_PAIR_ANALYSIS_PHRASE[pair_task]}, so the "
+                "question is answered from both inputs rather than one of them being ignored."
+            ),
+            classification=cls,
+        )
+
     # Otherwise pass the recognised task through; the registry validates the inputs and refuses
     # honestly if they do not fit, which is more truthful than substituting a different analysis.
     label = _TASK_LABEL.get(cls.task, cls.task.value)
@@ -232,6 +300,27 @@ def _reconcile(cls: Classification, profile: _InputProfile) -> RouteDecision:
         reason=f"Recognised {label} from the query{terms}.",
         classification=cls,
     )
+
+
+def _pair_task_for(task: QueryTask, profile: _InputProfile) -> QueryTask | None:
+    """The pair analysis that subsumes a single-scene ``task`` for these inputs, if any.
+
+    Returns ``None`` — meaning "do not override" — whenever the substitution would not be
+    unambiguously correct: a task no pair analysis subsumes, an input count other than two, or a
+    radar image beside one whose modality could not be determined (which is not a resolvable pair at
+    all). Those keep their existing behaviour: the recognised task passes through and is refused
+    honestly downstream.
+    """
+    if task not in _SCENE_READING_TASKS or profile.count != MAX_PAIR_INPUTS:
+        return None
+    if profile.sar == 1 and profile.optical == 1:
+        return QueryTask.OPTICAL_SAR_ANALYSIS
+    if profile.sar != 1:
+        # Same sensor family at two dates (two optical, two radar, or two of undetermined type):
+        # a change comparison. Mirrors the UNKNOWN-query defaults below, so the two paths cannot
+        # drift apart.
+        return QueryTask.CHANGE_DETECTION
+    return None
 
 
 def _default_from_inputs(cls: Classification, profile: _InputProfile) -> RouteDecision:
@@ -252,7 +341,7 @@ def _default_from_inputs(cls: Classification, profile: _InputProfile) -> RouteDe
             cls,
             "a single image was provided, so a land-cover overview is produced",
         )
-    if n == 2:
+    if n == MAX_PAIR_INPUTS:
         if profile.sar == 0:
             return _defaulted(
                 QueryTask.CHANGE_DETECTION,
@@ -265,16 +354,27 @@ def _default_from_inputs(cls: Classification, profile: _InputProfile) -> RouteDe
                 cls,
                 "an optical and a SAR image were provided, so the two are fused",
             )
-        # A SAR image is present but the pair is not one optical + one SAR: two radar images (no
-        # implemented SAR change detection), or a radar image beside one of undetermined type.
-        detail = (
-            "two SAR (radar) images were provided, and SAR change detection is not implemented"
-            if profile.sar == 2
-            else "a SAR image was provided beside one of undetermined type"
-        )
+        if profile.sar == MAX_PAIR_INPUTS:
+            # Two radar scenes of the same area at two dates. The change analysis does run on
+            # these — it compares the shared backscatter band directly — so declining here would
+            # be a dead end in a mode the interface offers, and the previous wording ("SAR change
+            # detection is not implemented") described the routing rather than the tool. What it
+            # cannot do is name a land-cover transition, because land cover is not classifiable
+            # from backscatter alone; the analysis says so in its own warnings, and the reason
+            # says so here rather than promising an optical-grade result.
+            return _defaulted(
+                QueryTask.CHANGE_DETECTION,
+                cls,
+                "two SAR (radar) images were provided, so their backscatter is compared between "
+                "the two dates — an amplitude comparison, which locates change without naming a "
+                "land-cover transition",
+            )
+        # A radar image beside one whose modality could not be determined: neither a cross-modal
+        # pair (that needs a recognised optical scene) nor an established same-sensor pair.
         return _unresolved(
             cls,
-            f"{detail}. Please tell me what you would like to do, or adjust the images",
+            "a SAR image was provided beside one of undetermined type. Please tell me what you "
+            "would like to do, or declare the second image's sensor when uploading it",
         )
     if n == 0:
         return _unresolved(

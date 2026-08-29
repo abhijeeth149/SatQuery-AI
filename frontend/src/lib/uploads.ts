@@ -96,6 +96,23 @@ export const MODE_ORDER: InputMode[] = [
   'bitemporal_pair',
 ]
 
+/**
+ * The `modality_hint` to send with a slot's upload, or `undefined` to let the backend infer it.
+ *
+ * The backend can only infer modality from filename tokens and band descriptions, so a SAR scene
+ * exported as `subset_1.tif` with an unlabelled band infers as `unknown` — and an optical+unknown
+ * pair normalises to `bitemporal_pair`, sending a cross-modal request to change detection, which
+ * fails with "no bands in common" instead of running the fusion the user asked for. Where the mode
+ * fixes the sensor for a slot, that is declared instead of re-guessed.
+ *
+ * `t1`/`t2` are deliberately absent: a bi-temporal pair may be either sensor and the selector does
+ * not ask which, so declaring one would assert something the user never said.
+ */
+export const MODALITY_HINT_BY_SLOT_ROLE: Record<string, string | undefined> = {
+  optical: 'optical',
+  sar: 'sar',
+}
+
 /** One-line description of what each mode does. */
 export const MODE_DESCRIPTIONS: Record<InputMode, string> = {
   single_optical: 'Land cover, materials, and text-guided grounding in one optical scene.',

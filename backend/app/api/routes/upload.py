@@ -24,6 +24,37 @@ router = APIRouter(tags=["upload"])
 settings = get_settings()
 
 
+def _declared_modality(hint: str | None) -> Modality:
+    """Resolve a caller-declared modality, or ``UNKNOWN`` to mean "infer it from the raster".
+
+    The client knows something the file often does not. :func:`app.geospatial.raster.infer_modality`
+    can only read filename tokens and band descriptions, so a genuine SAR scene exported as
+    ``subset_1.tif`` with an unlabelled band infers as ``UNKNOWN`` — and an optical + undetermined
+    pair normalises to ``bitemporal_pair``, which sends a cross-modal request to change detection and
+    fails with "no bands in common". A UI that asked the user for an optical scene and a SAR scene
+    already knows which is which, so it declares it here and inference is skipped.
+
+    A hint that is not a known modality is rejected rather than ignored: the previous ``except
+    ValueError: pass`` turned ``"SAR "`` or ``"radar"`` into a silent fall back to inference, so the
+    upload reported a modality the caller had not asked for and the pair mode changed underneath it.
+
+    Raises:
+        ValidationError: ``hint`` is neither empty nor a value of :class:`Modality`.
+    """
+    if hint is None or not hint.strip():
+        return Modality.UNKNOWN
+    try:
+        return Modality(hint.strip().lower())
+    except ValueError as exc:
+        allowed = ", ".join(m.value for m in Modality)
+        raise ValidationError(
+            f"Unknown modality_hint {hint!r}. Expected one of: {allowed}, or omit it to infer "
+            "the modality from the raster.",
+            code=ErrorCode.WRONG_MODALITY,
+            context={"received": hint, "allowed": [m.value for m in Modality]},
+        ) from exc
+
+
 @router.post("/upload", response_model=UploadResponse, status_code=status.HTTP_201_CREATED)
 async def upload_image(
     file: UploadFile = File(...),
@@ -32,8 +63,15 @@ async def upload_image(
 ) -> dict[str, Any]:
     """Upload a remote sensing raster image (GeoTIFF, TIFF, PNG, JPEG).
 
-    Validates size, format, extracts CRS/metadata, generates a preview image,
-    and returns image_id for analysis requests.
+    Validates size and format, extracts CRS/metadata, generates a preview image, and returns the
+    ``image_id`` an analysis request refers to.
+
+    Args:
+        modality_hint: ``"optical"`` or ``"sar"`` when the caller knows the sensor — for a client that
+            asked the user for an optical scene and a SAR scene, this is the difference between the
+            pair normalising to ``optical_sar_pair`` and it falling back to ``bitemporal_pair``
+            because the file carried no recognisable sensor metadata. Omit it to infer from the
+            raster; an unrecognised value is rejected, not ignored.
     """
     filename = file.filename or "uploaded_image.tif"
     ext = Path(filename).suffix.lower()
@@ -65,14 +103,11 @@ async def upload_image(
 
     try:
         meta = read_metadata(dest_path)
-        mod = Modality.UNKNOWN
-        if modality_hint:
-            try:
-                mod = Modality(modality_hint.lower())
-            except ValueError:
-                pass
-        
-        raster = load_raster(dest_path, max_edge=settings.preview_edge, modality=mod)
+        raster = load_raster(
+            dest_path,
+            max_edge=settings.preview_edge,
+            modality=_declared_modality(modality_hint),
+        )
     except ValidationError:
         dest_path.unlink(missing_ok=True)
         raise

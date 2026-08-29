@@ -33,7 +33,16 @@ import {
   isLandCoverData,
   isSarData,
 } from '@/types/api'
-import { formatArea, formatDuration, formatFractionPct, formatInt, formatPct } from '@/lib/format'
+import {
+  formatArea,
+  formatExtent,
+  formatFractionPct,
+  formatInt,
+  formatPct,
+  formatSignedExtent,
+  formatSignedFractionPct,
+  formatStepDuration,
+} from '@/lib/format'
 import { changeTypeLabel, prettifyKey } from '@/lib/classes'
 
 // ---------------------------------------------------------------------------
@@ -88,8 +97,18 @@ export interface ReportModel {
   fixture: boolean
   query: string
   answer: string
-  /** True when the answer is the §28 decline or evidence was insufficient. */
-  declined: boolean
+  /** True when §28 withheld the answer outright — `answer` is then the refusal itself. */
+  withheld: boolean
+  /**
+   * True when the answer states real measurements that the evidence does not support concluding
+   * from. Distinct from `withheld`: the figures are measured and reportable, the *conclusion* is
+   * not. The two used to be one `declined` flag, which made the report print "Insufficient
+   * evidence for a reliable conclusion." directly above a measured answer — declining and
+   * concluding in the same breath.
+   */
+  unreliable: boolean
+  /** The weak-evidence caveat, phrased once here so screen and file say the same thing. */
+  caveat: { title: string; body: string } | null
   /** The phrasing that was withheld because evidence was insufficient (else null). */
   withheldDraft: string | null
   confidenceLevel: ConfidenceLevel
@@ -385,15 +404,20 @@ function fusionBlocks(d: FusionData): ReportBlock[] {
 }
 
 function changeBlocks(d: ChangeData): ReportBlock[] {
+  const georeferenced = d.changed_area_m2 !== null
   const blocks: ReportBlock[] = [
     {
       kind: 'fields',
       fields: [
         { label: 'Method', value: d.method },
         {
-          label: 'Changed area',
-          value: formatArea(d.changed_area_m2),
-          hint: `${formatInt(d.changed_pixels)} px`,
+          // A non-georeferenced pair carries no pixel size, so the ground area is null while the
+          // pixel count is measured. Headlining the area printed "—" over a measured 100,620 px.
+          label: georeferenced ? 'Changed area' : 'Changed extent',
+          value: formatExtent(d.changed_area_m2, d.changed_pixels),
+          hint: georeferenced
+            ? `${formatInt(d.changed_pixels)} px`
+            : 'pixel count — no georeference, so no ground area',
         },
         { label: 'Changed', value: formatPct(d.changed_percentage) },
         {
@@ -411,7 +435,7 @@ function changeBlocks(d: ChangeData): ReportBlock[] {
       kind: 'callout',
       tone: 'info',
       title: 'Dominant change',
-      body: `${prettifyKey(t.from)} → ${prettifyKey(t.to)} (${changeTypeLabel(t.change_type)}) — ${formatPct(t.percentage_of_change)} of the changed area (${formatArea(t.area_m2)}).`,
+      body: `${prettifyKey(t.from)} → ${prettifyKey(t.to)} (${changeTypeLabel(t.change_type)}) — ${formatPct(t.percentage_of_change)} of the changed area (${formatExtent(t.area_m2, t.pixel_count)}).`,
     })
   }
 
@@ -423,14 +447,14 @@ function changeBlocks(d: ChangeData): ReportBlock[] {
         { key: 'transition', label: 'Transition' },
         { key: 'type', label: 'Type' },
         { key: 'share', label: 'Share', align: 'right' },
-        { key: 'area', label: 'Area', align: 'right' },
+        { key: 'area', label: georeferenced ? 'Area' : 'Extent', align: 'right' },
         { key: 'agreement', label: 'Spectral agreement', align: 'right' },
       ],
       rows: byDesc(d.transitions, (t) => t.fraction_of_change).map((t) => ({
         transition: `${prettifyKey(t.from)} → ${prettifyKey(t.to)}`,
         type: changeTypeLabel(t.change_type),
         share: formatPct(t.percentage_of_change),
-        area: formatArea(t.area_m2),
+        area: formatExtent(t.area_m2, t.pixel_count),
         agreement: formatFractionPct(t.spectral_agreement),
       })),
     },
@@ -440,20 +464,29 @@ function changeBlocks(d: ChangeData): ReportBlock[] {
     blocks.push({
       kind: 'table',
       table: {
-        caption: 'Class area change',
+        caption: georeferenced
+          ? 'Class area change'
+          : 'Class extent change (pixel counts — the pair is not georeferenced)',
         columns: [
           { key: 'class', label: 'Class' },
           { key: 'before', label: 'Before', align: 'right' },
           { key: 'after', label: 'After', align: 'right' },
-          { key: 'delta', label: 'Δ area', align: 'right' },
+          { key: 'delta', label: georeferenced ? 'Δ area' : 'Δ extent', align: 'right' },
           { key: 'relative', label: 'Relative', align: 'right' },
         ],
+        /*
+         * Every cell here falls back to the measured pixel count, and the Δ takes its sign from
+         * `pixel_delta`, which is measured for every pair. This row used to read
+         * "Water — — +0 m² 115.3%": the delta came from `area_m2_delta >= 0 ? '+' : '−'` with
+         * `formatArea(Math.abs(area_m2_delta))`, and since `null >= 0` is true and `Math.abs(null)`
+         * is 0, a class that more than doubled was reported as a measured zero change.
+         */
         rows: d.class_deltas.map((c) => ({
           class: prettifyKey(c.class),
-          before: formatArea(c.area_m2_before),
-          after: formatArea(c.area_m2_after),
-          delta: `${c.area_m2_delta >= 0 ? '+' : '−'}${formatArea(Math.abs(c.area_m2_delta))}`,
-          relative: formatFractionPct(c.relative_delta),
+          before: formatExtent(c.area_m2_before, c.pixels_before),
+          after: formatExtent(c.area_m2_after, c.pixels_after),
+          delta: formatSignedExtent(c.area_m2_delta, c.pixel_delta),
+          relative: formatSignedFractionPct(c.relative_delta),
         })),
       },
     })
@@ -614,7 +647,7 @@ function traceSection(result: AnalysisResult): ReportSection {
             step: prettifyKey(s.step),
             tool: s.tool ?? '—',
             status: s.status.toUpperCase(),
-            duration: formatDuration(s.duration_ms),
+            duration: formatStepDuration(s.duration_ms),
             summary: s.summary,
           })),
         },
@@ -649,7 +682,21 @@ function evidenceSection(result: AnalysisResult): ReportSection | null {
 // Public builder
 // ---------------------------------------------------------------------------
 export function buildReportModel(result: AnalysisResult, generatedAtIso: string): ReportModel {
-  const declined = result.answer_withheld !== null || !result.confidence.sufficient
+  const withheld = result.answer_withheld !== null
+  const unreliable = !result.confidence.sufficient
+  const { limiting_factor, reasons } = result.confidence
+
+  // Named once, beside the measurements rather than over them, and saying which measurement was
+  // the limiting one instead of leaving the reader to guess (§27: weak evidence is not a failure).
+  const caveat =
+    unreliable && !withheld
+      ? {
+          title: 'These measurements do not support a reliable conclusion',
+          body: `${limiting_factor ? `Limiting factor: ${prettifyKey(limiting_factor)}. ` : ''}${
+            reasons[0] ?? 'The measured evidence was too weak to state a finding.'
+          } Treat the figures below as measurements of these inputs, not as a finding about the ground.`,
+        }
+      : null
 
   const sections: ReportSection[] = [findingsSection(result.data), confidenceSection(result)]
   const evidence = evidenceSection(result)
@@ -676,7 +723,9 @@ export function buildReportModel(result: AnalysisResult, generatedAtIso: string)
     fixture: Boolean(result.fixture),
     query: result.query,
     answer: result.answer,
-    declined,
+    withheld,
+    unreliable,
+    caveat,
     withheldDraft: result.answer_withheld,
     confidenceLevel: result.confidence.level,
     artifacts: result.artifacts,

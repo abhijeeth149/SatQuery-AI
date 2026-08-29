@@ -22,6 +22,7 @@ from typing import TYPE_CHECKING, ClassVar
 from ...core.errors import ErrorCode, ValidationError
 from ...core.types import InputMode, LandCoverClass, Modality, QueryTask
 from ...geospatial.align import align_to_reference
+from ...geospatial.raster import BandRole
 from ...geospatial.validate import (
     assess_quality,
     check_pair_compatibility,
@@ -32,6 +33,7 @@ from ...services.change import detect_change
 from .base import Prepared, Tool, ToolContext, ToolResult, ToolTier
 
 if TYPE_CHECKING:
+    from ...geospatial.raster import RasterData
     from ...services.change import ChangeResult
 
 
@@ -71,6 +73,63 @@ class ChangeTool(Tool):
                 code=ErrorCode.WRONG_MODALITY,
                 context={"modalities": [a.modality.value, b.modality.value]},
             )
+        self._require_shared_bands(a, b)
+
+    @staticmethod
+    def _require_shared_bands(a: RasterData, b: RasterData) -> None:
+        """Refuse a pair with no identified band in common, *before* any analysis runs (§6, §38).
+
+        :func:`app.services.change.detect_change` differences shared spectral indices, falling back
+        to shared raw bands; both need at least one identified :class:`BandRole` present in both
+        dates, so an empty intersection means the measurement is impossible. The service already
+        raises ``MISSING_BAND`` for it — but only after alignment and reprojection have run, and with
+        wording ("the two images have no bands in common") that names the symptom rather than the
+        cause the user can act on.
+
+        The cause is usually an undetermined sensor. A real SAR scene exported as ``subset_1.tif``
+        with an unlabelled band cannot be recognised from its metadata, so it loads as ``UNKNOWN``
+        with a single ``gray`` band; paired with an optical scene it normalises to a bi-temporal
+        request and lands here. The remedy is to declare the sensor on upload, which the message
+        says outright instead of leaving the user to infer it from a band list.
+        """
+        shared = {
+            role for role in a.band_roles if role is not BandRole.UNKNOWN
+        } & {role for role in b.band_roles if role is not BandRole.UNKNOWN}
+        if shared:
+            return
+
+        undetermined = [
+            i + 1 for i, r in enumerate((a, b)) if r.modality is Modality.UNKNOWN
+        ]
+        if undetermined:
+            which = (
+                f"image {undetermined[0]}"
+                if len(undetermined) == 1
+                else "neither image"
+            )
+            remedy = (
+                f"The sensor type of {which} could not be determined from its metadata, so its "
+                "bands could not be matched to the other image. Declare the sensor when uploading "
+                "(the optical / SAR selection in the interface, or the 'modality_hint' upload "
+                "field), or supply imagery whose band descriptions name the bands."
+            )
+        else:
+            remedy = (
+                "Supply two scenes from the same sensor, so that at least one band is present in "
+                "both dates."
+            )
+        raise ValidationError(
+            "These two images have no identified band in common, so there is nothing to compare "
+            f"between the two dates. {remedy}",
+            code=ErrorCode.MISSING_BAND,
+            context={
+                "modalities": [a.modality.value, b.modality.value],
+                "band_roles": [
+                    [role.value for role in a.band_roles],
+                    [role.value for role in b.band_roles],
+                ],
+            },
+        )
 
     def preprocess(self, ctx: ToolContext) -> Prepared:
         before, after = ctx.rasters

@@ -1,14 +1,16 @@
 """Tests for the router: classifier verdict + input modalities -> a dispatch decision (§5, §9).
 
-Four parts, mirroring what the router owns:
+Five parts, mirroring what the router owns:
 
 * **input defaults** — an ``UNKNOWN`` query is defaulted from the images (one optical -> land cover,
-  one radar -> SAR, two non-radar -> change, optical+SAR -> fusion), and declined for clarification
-  when the images fit no analysis (none, two radar, three or more);
-* **recognised pass-through** — a task named by the text is dispatched as-is, and a recognised task
-  overrides any input default (the words win over the images when both point somewhere);
-* **the one input override** — a general "what do you see / describe this" query whose only input is
+  one radar -> SAR, two of the same sensor family -> change, optical+SAR -> fusion), and declined for
+  clarification when the images fit no analysis (none, radar beside an undetermined image, three or
+  more);
+* **recognised pass-through** — a task named by the text is dispatched as-is when the inputs suit it;
+* **the lone-SAR override** — a general "what do you see / describe this" query whose only input is
   a single SAR image is re-pointed to SAR analysis, while grounding and land-cover queries are not;
+* **the pair override** — a single-scene query asked of two images is re-pointed to that pair's
+  analysis instead of dying at the contract gate on the image count;
 * **the decision object** — source, reason, clarification flag and serialisation.
 
 Inputs are real :class:`RasterData` built in memory (the router reads only ``.modality``), so the
@@ -21,7 +23,8 @@ from pathlib import Path
 import numpy as np
 
 from app.agents.classifier import Classification, classify
-from app.agents.router import RouteDecision, RouteSource, route
+from app.agents.modes import MAX_INPUTS
+from app.agents.router import MAX_PAIR_INPUTS, RouteSource, route
 from app.core.types import BandRole, Modality, QueryTask
 from app.geospatial.raster import RasterData, RasterMetadata
 
@@ -113,16 +116,24 @@ class TestInputDefaults:
         assert d.needs_clarification
         assert not d.is_resolved
 
-    def test_two_sar_images_are_unresolved(self):
+    def test_two_sar_images_default_to_change(self):
+        # Two radar scenes of one area at two dates are a change comparison: the change tool
+        # compares their shared backscatter band directly. It cannot name a land-cover transition
+        # from backscatter, and the reason says so rather than promising an optical-grade result.
         d = route("", [sar(), sar()])
-        assert d.source is RouteSource.UNRESOLVED
-        assert d.needs_clarification
-        assert "SAR change detection is not implemented" in d.reason
+        assert d.task is QueryTask.CHANGE_DETECTION
+        assert d.source is RouteSource.INPUT_DEFAULT
+        assert d.is_resolved
+        assert not d.needs_clarification
+        assert "amplitude comparison" in d.reason
+        assert "without naming a land-cover transition" in d.reason
 
     def test_sar_beside_unknown_is_unresolved(self):
         d = route("", [sar(), unk()])
         assert d.source is RouteSource.UNRESOLVED
         assert "undetermined type" in d.reason
+        # The remedy is actionable: the sensor can be declared at upload time.
+        assert "declare the second image's sensor" in d.reason
 
     def test_three_images_are_unresolved(self):
         d = route("", [opt(), opt(), opt()])
@@ -141,11 +152,21 @@ class TestRecognisedPassThrough:
         assert d.source is RouteSource.CLASSIFIER
         assert "matched:" in d.reason  # the reason cites the evidence behind the task
 
-    def test_recognised_task_beats_the_input_default(self):
-        # Two optical images would default to change, but an explicit land-cover query wins.
-        d = route("classify the land cover", [opt(), opt()])
+    def test_recognised_task_beats_the_input_default_for_one_image(self):
+        # One optical image would default to land cover anyway; what this pins is that the *text*
+        # decided it (source=classifier), not the image count.
+        d = route("classify the land cover", [opt()])
         assert d.task is QueryTask.LAND_COVER_ANALYSIS
         assert d.source is RouteSource.CLASSIFIER
+
+    def test_single_scene_task_on_a_pair_is_not_dispatched_as_single_scene(self):
+        # A land-cover query over two images used to pass straight through to the single-image
+        # analyser and die at the contract gate with "works on exactly 1 image", which named the
+        # wrong problem: the question is answerable, just by the pair analysis. See
+        # TestPairInputOverride for what it is re-pointed to.
+        d = route("classify the land cover", [opt(), opt()])
+        assert d.task is not QueryTask.LAND_COVER_ANALYSIS
+        assert d.source is RouteSource.INPUT_OVERRIDE
 
     def test_change_question_routes_to_change_vqa(self):
         d = route("what changed between the two dates?", [opt(), opt()])
@@ -207,11 +228,87 @@ class TestInputOverride:
         assert d.task is QueryTask.VQA
         assert d.source is RouteSource.CLASSIFIER
 
-    def test_override_requires_a_single_sar_image(self):
-        # Two SAR images do not trigger the single-image override; VQA passes through instead.
+    def test_lone_sar_override_does_not_apply_to_a_pair(self):
+        # The single-image SAR override is for one radar image. Two of them are a pair, so the
+        # pair override applies instead and the question is answered from both dates.
         d = route("what do you see in this image", [sar(), sar()])
-        assert d.task is QueryTask.VQA
+        assert d.task is QueryTask.CHANGE_DETECTION
+        assert d.source is RouteSource.INPUT_OVERRIDE
+
+
+# ---------------------------------------------------------------------------
+# The pair input override: a single-scene query asked of two images
+# ---------------------------------------------------------------------------
+class TestPairInputOverride:
+    def test_land_cover_on_an_optical_sar_pair_routes_to_fusion(self):
+        # The failure the user hit: "Combine the optical and radar images to map land cover"
+        # classifies as land cover, which analyses one scene, and was rejected for the image count.
+        d = route("map the land cover using both sensors", [opt(), sar()])
+        assert d.task is QueryTask.OPTICAL_SAR_ANALYSIS
+        assert d.source is RouteSource.INPUT_OVERRIDE
+        assert "two images were provided" in d.reason
+        assert "where the two sensors disagree" in d.reason
+
+    def test_land_cover_on_two_optical_routes_to_change(self):
+        d = route("classify the land cover", [opt(), opt()])
+        assert d.task is QueryTask.CHANGE_DETECTION
+        assert d.source is RouteSource.INPUT_OVERRIDE
+        assert "at each date" in d.reason
+
+    def test_grounding_on_a_pair_routes_to_the_pair_analysis(self):
+        # Grounding *is* overridden on a pair, unlike on a lone SAR image: both pair analyses read
+        # the scene, so the "where is X" question is answered from both inputs.
+        d = route("where is the water", [opt(), sar()])
+        assert d.task is QueryTask.OPTICAL_SAR_ANALYSIS
+        assert d.source is RouteSource.INPUT_OVERRIDE
+
+    def test_captioning_on_a_bitemporal_pair_routes_to_change(self):
+        d = route("describe this image", [opt(), opt()])
+        assert d.task is QueryTask.CHANGE_DETECTION
+        assert d.source is RouteSource.INPUT_OVERRIDE
+
+    def test_reason_names_the_analysis_that_ran(self):
+        # The substitution is stated, not implied (§49): the reason names both the query's reading
+        # and the analysis actually dispatched.
+        d = route("classify the land cover", [opt(), sar()])
+        assert "land-cover analysis" in d.reason
+        assert "optical/SAR fusion" in d.reason
+
+    def test_object_detection_on_a_pair_is_not_overridden(self):
+        # No pair analysis subsumes detection, so it passes through to the registry's honest
+        # refusal rather than being swapped for something the user did not ask for.
+        d = route("detect all the ships", [opt(), sar()])
+        assert d.task is QueryTask.OBJECT_DETECTION
         assert d.source is RouteSource.CLASSIFIER
+
+    def test_report_generation_on_a_pair_is_not_overridden(self):
+        d = route("generate a full analysis report", [opt(), opt()])
+        assert d.task is QueryTask.REPORT_GENERATION
+        assert d.source is RouteSource.CLASSIFIER
+
+    def test_change_query_on_a_pair_is_not_overridden(self):
+        # Already a pair task; there is nothing to re-point.
+        d = route("what changed between the two dates?", [opt(), opt()])
+        assert d.task is QueryTask.CHANGE_VQA
+        assert d.source is RouteSource.CLASSIFIER
+
+    def test_sar_beside_unknown_is_not_overridden(self):
+        # Not a resolvable pair: no recognised optical scene for fusion, and no established
+        # same-sensor pair for change. The recognised task passes through to a downstream refusal.
+        d = route("classify the land cover", [sar(), unk()])
+        assert d.task is QueryTask.LAND_COVER_ANALYSIS
+        assert d.source is RouteSource.CLASSIFIER
+
+    def test_override_does_not_apply_to_three_images(self):
+        d = route("classify the land cover", [opt(), opt(), opt()])
+        assert d.task is QueryTask.LAND_COVER_ANALYSIS
+        assert d.source is RouteSource.CLASSIFIER
+
+    def test_pair_override_matches_the_unknown_query_default(self):
+        # The two paths into a pair analysis must not drift apart: whatever an empty query defaults
+        # to for a given pair, a scene-reading query on that same pair is re-pointed to.
+        for pair in ([opt(), opt()], [opt(), sar()], [sar(), sar()]):
+            assert route("classify the land cover", pair).task == route("", pair).task
 
 
 # ---------------------------------------------------------------------------
@@ -248,3 +345,8 @@ class TestRouteDecision:
         query = "detect all the ships"
         d = route(query, [opt()])
         assert d.classification == classify(query)
+
+    def test_pair_size_constant_matches_the_mode_normaliser(self):
+        # The router keeps its own literal to stay clear of the geospatial import chain that
+        # app.agents.modes pulls in; modes.MAX_INPUTS is the authority, so they must agree.
+        assert MAX_PAIR_INPUTS == MAX_INPUTS

@@ -7,15 +7,22 @@
 import type {
   AnalysisData,
   AnalysisResult,
+  AnalysisStatus,
   AnalysisSummary,
   ApiErrorEnvelope,
   Artifact,
+  ConfidenceLevel,
+  ConfidenceReport,
   HealthStatus,
   InputMeta,
   InputMode,
   Metrics,
+  Modality,
+  ToolTier,
   TraceStep,
 } from '@/types/api'
+import { MODALITIES } from '@/types/api'
+import { MODALITY_HINT_BY_SLOT_ROLE, MODE_SLOTS } from '@/lib/uploads'
 import { listFixtureSummaries, loadFixture } from './fixtures'
 
 // In-memory cache for live runs generated during the current browser session
@@ -114,9 +121,19 @@ interface UploadResponse {
   band_descriptions: string[]
 }
 
-async function uploadFile(file: File): Promise<UploadResponse> {
+/**
+ * Upload one raster.
+ *
+ * `modalityHint` declares the sensor when the UI already knows it. It matters: the backend can only
+ * infer modality from filename tokens and band descriptions, so a real SAR scene exported as
+ * `subset_1.tif` with an unlabelled band infers as `unknown`, the optical+SAR pair then normalises to
+ * `bitemporal_pair`, and the fusion the user asked for is never run. The mode selector already asked
+ * which file is optical and which is SAR, so that answer is sent rather than re-guessed server-side.
+ */
+async function uploadFile(file: File, modalityHint?: string): Promise<UploadResponse> {
   const formData = new FormData()
   formData.append('file', file)
+  if (modalityHint) formData.append('modality_hint', modalityHint)
   return fetchJson<UploadResponse>('/api/upload', {
     method: 'POST',
     body: formData,
@@ -169,6 +186,90 @@ export async function listAnalyses(): Promise<AnalysisSummary[]> {
   return listFixtureSummaries()
 }
 
+const ANALYSIS_STATUSES: readonly AnalysisStatus[] = ['success', 'partial', 'failed']
+const TOOL_TIERS: readonly ToolTier[] = ['preferred', 'fallback', 'classical']
+
+/**
+ * The backend's terminal status, or `success` only when it declared nothing.
+ *
+ * This used to be the literal `'success'`, so a run that finished with band or geometry warnings —
+ * the optical/SAR fusion finishes with fourteen — still showed a green Success badge next to its own
+ * caveats. Both sides share the vocabulary `success | partial | failed`, so the value is read; the
+ * guard exists only so an unrecognised string cannot reach a `variant` lookup.
+ */
+function asStatus(value: string | undefined): AnalysisStatus {
+  return ANALYSIS_STATUSES.find((s) => s === value) ?? 'success'
+}
+
+/** The fallback rung the tool sits on. Every registered tool is currently `classical`. */
+function asTier(value: string | null | undefined): ToolTier {
+  return TOOL_TIERS.find((t) => t === value) ?? 'classical'
+}
+
+/**
+ * The sensor the backend resolved for an upload, or `unknown` when it could not say.
+ *
+ * `unknown` is a real answer here, not a placeholder: the backend infers modality from filename
+ * tokens and band descriptions, so an unlabelled single-band export genuinely cannot be classified.
+ * Coercing it to `optical` would put a sensor name on a file nobody identified.
+ */
+function asModality(value: string | null | undefined): Modality {
+  return MODALITIES.find((m) => m === value) ?? 'unknown'
+}
+
+/**
+ * The backend's own confidence report, or — for a row persisted before that report was published —
+ * the two fields it does carry and nothing more.
+ *
+ * Both mappers previously invented this object: a fixed `['Valid radiometric bounds', 'Sensor
+ * metadata verified', 'Measured spectral indices']` reason list that no measurement produced, a
+ * single fabricated `model_confidence` factor, and `sufficient: score >= 0.5` — a threshold of the
+ * UI's own making. That last one is why a measured `low` answer (0.494) was headlined "Insufficient
+ * evidence for a reliable conclusion" while the same card showed a "Low" badge and a "Success"
+ * status: the backend considers `low` sufficient, and only `insufficient` not. Sufficiency is the
+ * backend's verdict to make, so it is read, not recomputed.
+ */
+function mapConfidence(
+  report:
+    | {
+        level: string
+        score: number
+        sufficient: boolean
+        limiting_factor: string | null
+        reasons: string[]
+        factors: Array<{ name: string; value: number; weight: number; kind: string; reason: string }>
+      }
+    | undefined,
+  score: number,
+  level: string,
+): ConfidenceReport {
+  if (report) {
+    return {
+      score: report.score,
+      level: report.level as ConfidenceLevel,
+      sufficient: report.sufficient,
+      limiting_factor: report.limiting_factor,
+      reasons: report.reasons ?? [],
+      factors: (report.factors ?? []).map((f) => ({
+        name: f.name,
+        value: f.value,
+        weight: f.weight,
+        kind: f.kind as ConfidenceReport['factors'][number]['kind'],
+        reason: f.reason,
+      })),
+    }
+  }
+  return {
+    score,
+    level: level as ConfidenceLevel,
+    // Derived the way the confidence engine derives it — from the level, not from a threshold.
+    sufficient: level !== 'insufficient',
+    limiting_factor: null,
+    reasons: [],
+    factors: [],
+  }
+}
+
 /** Full analysis envelope by id. */
 export async function getAnalysis(id: string): Promise<AnalysisResult> {
   // Check live session cache first
@@ -179,15 +280,33 @@ export async function getAnalysis(id: string): Promise<AnalysisResult> {
   // Try live backend if not explicitly in offline fixtures mode
   if (!apiConfig.offline) {
     try {
+      interface BackendConfidence {
+        level: string
+        score: number
+        sufficient: boolean
+        limiting_factor: string | null
+        reasons: string[]
+        factors: Array<{
+          name: string
+          value: number
+          weight: number
+          kind: string
+          reason: string
+        }>
+      }
       interface BackendAnalysisDetail {
         analysis_id: string
         id?: string
         query: string
         mode?: string
         task: string
+        tool?: string | null
+        tier?: string | null
+        status?: string
         answer: string
         confidence_score: number
         confidence_level: string
+        confidence?: BackendConfidence
         evidence: string[]
         structured_evidence: any[]
         execution_trace: {
@@ -199,11 +318,12 @@ export async function getAnalysis(id: string): Promise<AnalysisResult> {
             tool_name: string
             status: string
             details: string
-            duration_ms?: number
+            duration_ms?: number | null
             warnings: string[]
           }>
         }
         data: any
+        duration_ms?: number | null
         warnings: string[]
         created_at: string
       }
@@ -212,33 +332,22 @@ export async function getAnalysis(id: string): Promise<AnalysisResult> {
         id: raw.analysis_id || raw.id || id,
         request_id: raw.execution_trace?.trace_id ?? id,
         created_at: raw.created_at,
-        status: 'success',
+        status: asStatus(raw.status),
         mode: (raw.mode as any) || 'single_optical',
         title: raw.query,
         note: `Live analysis executed via ${raw.task}`,
         query: raw.query,
         task: raw.task as any,
-        tool: raw.execution_trace?.steps?.[1]?.tool_name ?? 'remote-sensing-specialist',
-        tier: 'classical',
-        duration_ms: raw.execution_trace?.total_duration_ms ?? 620,
+        // The tool the backend says produced the answer. This used to read
+        // `execution_trace.steps[1].tool_name`, i.e. whichever component happened to occupy the
+        // second trace step — since mode normalisation was inserted there, every result claimed to
+        // have been produced by 'ModeNormalizer' rather than by the specialist that ran.
+        tool: raw.tool ?? 'unknown',
+        tier: asTier(raw.tier),
+        duration_ms: raw.duration_ms ?? raw.execution_trace?.total_duration_ms ?? 0,
         answer: raw.answer,
         answer_withheld: null,
-        confidence: {
-          score: raw.confidence_score ?? 0.85,
-          level: (raw.confidence_level as any) || 'high',
-          sufficient: (raw.confidence_score ?? 0.85) >= 0.5,
-          limiting_factor: null,
-          reasons: ['Valid radiometric bounds', 'Sensor metadata verified', 'Measured spectral indices'],
-          factors: [
-            {
-              name: 'model_confidence',
-              value: raw.confidence_score ?? 0.85,
-              weight: 1.0,
-              kind: 'contributor',
-              reason: 'Measured evidence score',
-            },
-          ],
-        },
+        confidence: mapConfidence(raw.confidence, raw.confidence_score, raw.confidence_level),
         evidence: raw.evidence,
         warnings: raw.warnings ?? [],
         data: (raw.data ?? {}) as AnalysisData,
@@ -247,7 +356,9 @@ export async function getAnalysis(id: string): Promise<AnalysisResult> {
           step: s.step_name as any,
           tool: s.tool_name,
           status: s.status as any,
-          duration_ms: s.duration_ms || 30,
+          // The measured value, including 0 for a sub-millisecond step and null for one the backend
+          // does not time separately. `|| 30` turned both into a plausible-looking invention.
+          duration_ms: s.duration_ms ?? null,
           summary: s.details,
           parameters: {},
           warnings: s.warnings ?? [],
@@ -303,11 +414,14 @@ export async function analyze(req: AnalyzeRequest): Promise<AnalysisResult> {
     })
   }
 
-  // 1. Upload files to backend
+  // 1. Upload files to backend, declaring the sensor for the slots where the mode fixes it.
+  //    optical_sar_pair has one optical slot and one SAR slot, so both are declared; the bitemporal
+  //    slots (t1/t2) may be either sensor, so those are left for the backend to infer.
+  const hints = MODE_SLOTS[req.mode].map((slot) => MODALITY_HINT_BY_SLOT_ROLE[slot.role])
   const uploadedMeta: UploadResponse[] = []
-  for (const file of req.files) {
+  for (const [i, file] of req.files.entries()) {
     try {
-      const up = await uploadFile(file)
+      const up = await uploadFile(file, hints[i])
       uploadedMeta.push(up)
     } catch (err) {
       if (err instanceof ApiRequestError) throw err
@@ -323,10 +437,30 @@ export async function analyze(req: AnalyzeRequest): Promise<AnalysisResult> {
   interface BackendAnalysisResponse {
     analysis_id: string
     query: string
+    /** The canonical mode the backend normalised the rasters to — not the one selected in the UI. */
+    mode?: string
     task: string
+    /** The tool that actually produced the answer, and the fallback rung it sits on. */
+    tool?: string | null
+    tier?: string | null
+    status?: string
     answer: string
     confidence_score: number
     confidence_level: string
+    confidence?: {
+      level: string
+      score: number
+      sufficient: boolean
+      limiting_factor: string | null
+      reasons: string[]
+      factors: Array<{
+        name: string
+        value: number
+        weight: number
+        kind: string
+        reason: string
+      }>
+    }
     evidence: string[]
     structured_evidence: any[]
     execution_trace: {
@@ -338,7 +472,7 @@ export async function analyze(req: AnalyzeRequest): Promise<AnalysisResult> {
         tool_name: string
         status: string
         details: string
-        duration_ms: number
+        duration_ms: number | null
         warnings: string[]
       }>
     }
@@ -373,8 +507,11 @@ export async function analyze(req: AnalyzeRequest): Promise<AnalysisResult> {
     georeferenced: u.georeferenced,
     band_descriptions: u.band_descriptions ?? [],
     decimation: u.decimation ?? 1.0,
-    modality: req.mode.includes('sar') ? 'sar' : 'optical',
-    band_roles: ['red', 'green', 'blue'],
+    // The modality the backend actually resolved for this file, not one derived from the selected
+    // mode. `req.mode.includes('sar')` labelled *both* inputs of an optical_sar_pair as 'sar'.
+    modality: asModality(u.modality),
+    // The upload response does not report band roles, so none are claimed here.
+    band_roles: [],
     bounds_wgs84: null,
   }))
 
@@ -390,7 +527,8 @@ export async function analyze(req: AnalyzeRequest): Promise<AnalysisResult> {
     step: s.step_name as any,
     tool: s.tool_name,
     status: s.status as any,
-    duration_ms: s.duration_ms || 25,
+    // As above: measured, or null when the backend does not time the step separately.
+    duration_ms: s.duration_ms ?? null,
     summary: s.details,
     parameters: {},
     warnings: s.warnings ?? [],
@@ -400,33 +538,23 @@ export async function analyze(req: AnalyzeRequest): Promise<AnalysisResult> {
     id: raw.analysis_id,
     request_id: raw.execution_trace?.trace_id ?? raw.analysis_id,
     created_at: raw.created_at,
-    status: 'success',
-    mode: req.mode,
+    // The backend's terminal state. Hardcoding 'success' meant a run that finished with geometry or
+    // band warnings — the fusion above finished with fourteen — still showed a green Success badge.
+    status: asStatus(raw.status),
+    // The mode the backend normalised the rasters to, which is the one the analysis actually ran
+    // against. The UI selection is only a request; if the two differ (a t1/t2 pair that turned out
+    // to be optical+SAR, say) the result must show what ran, not what was asked for.
+    mode: (raw.mode as any) ?? req.mode,
     title: req.query,
     note: `Analysis executed via ${raw.task}`,
     query: req.query,
     task: raw.task as any,
-    tool: raw.execution_trace?.steps?.[1]?.tool_name ?? 'remote-sensing-specialist',
-    tier: 'classical',
-    duration_ms: raw.execution_trace?.total_duration_ms ?? 150,
+    tool: raw.tool ?? 'unknown',
+    tier: asTier(raw.tier),
+    duration_ms: raw.execution_trace?.total_duration_ms ?? 0,
     answer: raw.answer,
     answer_withheld: null,
-    confidence: {
-      score: raw.confidence_score ?? 0.85,
-      level: (raw.confidence_level as any) || 'high',
-      sufficient: (raw.confidence_score ?? 0.85) >= 0.5,
-      limiting_factor: null,
-      reasons: ['Valid radiometric bounds', 'Sensor metadata verified', 'Measured spectral indices'],
-      factors: [
-        {
-          name: 'model_confidence',
-          value: raw.confidence_score ?? 0.85,
-          weight: 1.0,
-          kind: 'contributor',
-          reason: 'Measured evidence score',
-        },
-      ],
-    },
+    confidence: mapConfidence(raw.confidence, raw.confidence_score, raw.confidence_level),
     evidence: raw.evidence ?? [],
     warnings: raw.warnings ?? [],
     data: (raw.data ?? {}) as AnalysisData,

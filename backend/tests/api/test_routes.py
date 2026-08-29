@@ -2,11 +2,12 @@
 from __future__ import annotations
 
 import io
-from pathlib import Path
-from fastapi.testclient import TestClient
+
 import pytest
+from fastapi.testclient import TestClient
 
 from app.main import app
+
 
 @pytest.fixture
 def client():
@@ -48,16 +49,40 @@ def test_upload_invalid_format(client):
 
 
 def test_models_endpoint_has_7_ready_components(client):
+    """/api/models lists the seven registered tools, under the names they actually have.
+
+    This test used to require names like ``OpticalLandcoverSpecialist`` and ``FusionSpecialist``.
+    No such component exists — nothing in the codebase has ever been called that. They named a
+    model line-up the project does not have, which is exactly the claim §26 forbids, and the test
+    failed against the endpoint that reports the truth. The registry entries below are the tools
+    the router can actually dispatch to; each declares the input contract it is gated on.
+    """
     response = client.get("/api/models")
     assert response.status_code == 200
     tools = response.json()
-    assert len(tools) >= 7
     names = [t["name"] for t in tools]
-    assert "OpticalLandcoverSpecialist" in names
-    assert "GroundingSpecialist" in names
-    assert "ChangeDetectionSpecialist" in names
-    assert "FusionSpecialist" in names
+
+    assert sorted(names) == sorted(
+        [
+            "landcover-spectral-cv",
+            "grounding-spectral-cv",
+            "vqa-landcover-cv",
+            "captioning-landcover-cv",
+            "change-cva-cv",
+            "sar-backscatter-cv",
+            "fusion-decision-cv",
+        ]
+    )
+    # Every one is a classical computer-vision tool: no learned weights are loaded anywhere, so
+    # none may be advertised as `preferred` or `fallback` (§49).
+    assert {t["tier"] for t in tools} == {"classical"}
     assert all(t.get("available") is True for t in tools)
+    # The contract each tool is gated on is published, not implied (§6).
+    for tool in tools:
+        contract = tool["contract"]
+        assert contract["supported_modes"], tool["name"]
+        assert contract["min_images"] >= 1
+        assert contract["max_images"] >= contract["min_images"]
 
 
 def test_evaluation_endpoint(client):

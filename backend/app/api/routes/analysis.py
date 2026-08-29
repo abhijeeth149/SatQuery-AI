@@ -36,6 +36,7 @@ from ...core.types import (
     AnalysisStatus,
     ConfidenceLevel,
     EvidenceType,
+    Modality,
     QueryTask,
     StepStatus,
 )
@@ -52,6 +53,7 @@ from ...schemas import (
     TASK_OVERRIDE_AUTO,
     AnalyzeRequest,
     AnalyzeResponse,
+    ConfidenceSchema,
     EvidenceItem,
     ExecutionTraceSchema,
     ExecutionTraceStep,
@@ -73,7 +75,38 @@ _REPO_ROOT = Path(__file__).resolve().parents[4]
 _EVALUATION_REPORT = _REPO_ROOT / "reports" / "benchmark_evaluation_report.json"
 
 
+def _recorded_modality(raw: str | None, img_id: str) -> Modality:
+    """The modality persisted for an uploaded image, or ``UNKNOWN`` to re-infer it.
+
+    An unrecognised stored value is *not* an error worth failing the analysis over — the row may
+    predate a rename — so it degrades to ``UNKNOWN``, which means "infer from the raster", the same
+    behaviour as before the modality was carried across at all. It is logged, because a row that
+    cannot be read back is a schema problem the operator should see.
+    """
+    if raw is None or not raw.strip():
+        return Modality.UNKNOWN
+    try:
+        return Modality(raw.strip().lower())
+    except ValueError:
+        logger.warning(
+            "uploaded image has an unrecognised stored modality; re-inferring from the raster",
+            extra={"image_id": img_id, "stored_modality": raw},
+        )
+        return Modality.UNKNOWN
+
+
 def _load_rasters_for_ids(db: Session, image_ids: list[str]) -> list[RasterData]:
+    """Re-open each uploaded raster for analysis, preserving the modality settled at upload time.
+
+    The modality is read back from the image record rather than re-inferred here. That is the
+    difference between an optical+SAR pair working and not:
+    :func:`app.geospatial.raster.infer_modality` can only read filename tokens and band
+    descriptions, so a genuine SAR scene exported as ``subset_1.tif`` with an unlabelled band infers
+    as ``UNKNOWN`` — however clearly the client declared it via ``modality_hint`` on upload. Loading
+    with no ``modality=`` argument threw that declaration away, the pair then normalised to
+    ``bitemporal_pair`` instead of ``optical_sar_pair``, and change detection refused it with "no
+    bands in common" instead of running the fusion the user asked for.
+    """
     rasters: list[RasterData] = []
     for img_id in image_ids:
         rec = get_image_record(db, img_id)
@@ -89,6 +122,7 @@ def _load_rasters_for_ids(db: Session, image_ids: list[str]) -> list[RasterData]
                 file_path,
                 max_edge=settings.max_analysis_edge,
                 max_pixels=settings.max_pixels,
+                modality=_recorded_modality(rec.modality, img_id),
             )
         )
     return rasters
@@ -375,6 +409,7 @@ def _run_agentic_workflow(
         steps=steps,
         confidence_score=confidence.score,
         confidence_level=confidence.level,
+        confidence=ConfidenceSchema.model_validate(confidence.to_dict()),
         evidence=structured_evidence,
         warnings=warnings,
         reasoning_summary=decision.reason + (f" {override_note}" if override_note else ""),
@@ -417,6 +452,7 @@ def _run_agentic_workflow(
         "answer": result.answer,
         "confidence_score": confidence.score,
         "confidence_level": confidence.level,
+        "confidence": confidence.to_dict(),
         "evidence": list(result.evidence),
         "structured_evidence": [e.model_dump() for e in structured_evidence],
         "execution_trace": trace_obj.model_dump(mode="json"),
@@ -510,6 +546,28 @@ def _stored_evidence(trace: dict[str, Any]) -> list[dict[str, Any]]:
     return list(raw) if isinstance(raw, list) else []
 
 
+def _stored_confidence(trace: dict[str, Any], rec: Any) -> dict[str, Any]:
+    """The confidence report saved with the trace, or an honest minimum reconstructed from the row.
+
+    Rows written before the report was persisted have only the score and the level. Those two are
+    reported and nothing else is claimed: ``reasons`` and ``factors`` stay empty rather than being
+    back-filled with plausible text, and ``sufficient`` is derived the way the confidence engine
+    derives it — from the level, not from a threshold invented here.
+    """
+    stored = trace.get("confidence")
+    if isinstance(stored, dict) and "level" in stored:
+        return stored
+    level = str(rec.confidence_level)
+    return {
+        "level": level,
+        "score": rec.confidence_score,
+        "sufficient": level != ConfidenceLevel.INSUFFICIENT.value,
+        "limiting_factor": None,
+        "reasons": [],
+        "factors": [],
+    }
+
+
 @router.get("/analysis/{analysis_id}")
 def get_analysis(analysis_id: str, db: Session = Depends(get_db)) -> dict[str, Any]:
     """Re-read one persisted analysis, grounding included.
@@ -544,6 +602,7 @@ def get_analysis(analysis_id: str, db: Session = Depends(get_db)) -> dict[str, A
         "answer": rec.answer,
         "confidence_score": rec.confidence_score,
         "confidence_level": rec.confidence_level,
+        "confidence": _stored_confidence(trace, rec),
         "evidence": lines,
         "structured_evidence": items,
         "execution_trace": trace,

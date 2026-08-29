@@ -128,6 +128,77 @@ class TestRejects:
         assert ei.value.code == ErrorCode.NO_SPATIAL_OVERLAP
 
 
+class TestRejectsBeforeExecution:
+    """A pair with no band in common is refused at the gate, naming the cause (§6, §27, §38).
+
+    :func:`app.services.change.detect_change` already refuses this — but only after alignment and
+    reprojection have run, and by reporting the symptom ("no bands in common") rather than the cause
+    the user can act on. The commonest cause is a sensor that could not be determined from the file:
+    a SAR scene exported with a neutral filename and an unlabelled band loads as ``UNKNOWN`` with a
+    single ``gray`` band, pairs with an optical scene as a bi-temporal request, and lands here.
+    """
+
+    @pytest.fixture
+    def unlabelled_single_band(self, tmp_path):
+        """A one-band scene with no band description — modality and band role both undetermined."""
+        rng = np.random.default_rng(4)
+        arr = (rng.random((1, 48, 48)) * 400).astype(np.uint16)
+        path = write_test_raster(
+            tmp_path / "subset_1.tif", arr, transform=_origin(TEST_ORIGIN_X, TEST_ORIGIN_Y)
+        )
+        raster = load_raster(path, max_edge=None)
+        assert raster.modality is Modality.UNKNOWN  # the premise of the case
+        return raster
+
+    def test_no_shared_band_is_refused_at_the_gate(self, temporal, unlabelled_single_band):
+        before, _ = temporal
+        with pytest.raises(ValidationError) as ei:
+            ChangeTool().validate_input(
+                ToolContext("what changed?", [before, unlabelled_single_band])
+            )
+        assert ei.value.code == ErrorCode.MISSING_BAND
+
+    def test_refusal_names_the_undetermined_sensor_and_the_remedy(
+        self, temporal, unlabelled_single_band
+    ):
+        before, _ = temporal
+        with pytest.raises(ValidationError) as ei:
+            ChangeTool().validate_input(
+                ToolContext("what changed?", [before, unlabelled_single_band])
+            )
+        message = ei.value.message
+        assert "image 2" in message  # which of the two, not just "an image"
+        assert "could not be determined" in message
+        assert "modality_hint" in message  # the actionable remedy
+        # And the structured context carries the facts behind the refusal.
+        assert ei.value.context["modalities"] == ["optical", "unknown"]
+        assert ei.value.context["band_roles"][1] == ["gray"]
+
+    def test_two_unlabelled_scenes_share_gray_and_are_accepted(self, tmp_path):
+        """Two undetermined scenes are not refused: they share the ``gray`` band, so a comparison
+        is possible. The refusal is about shared bands, not about modality being unknown."""
+        rng = np.random.default_rng(5)
+        a = load_raster(
+            write_test_raster(
+                tmp_path / "one.tif", (rng.random((1, 48, 48)) * 400).astype(np.uint16),
+                transform=_origin(TEST_ORIGIN_X, TEST_ORIGIN_Y),
+            ),
+            max_edge=None,
+        )
+        b = load_raster(
+            write_test_raster(
+                tmp_path / "two.tif", (rng.random((1, 48, 48)) * 400).astype(np.uint16),
+                transform=_origin(TEST_ORIGIN_X, TEST_ORIGIN_Y),
+            ),
+            max_edge=None,
+        )
+        ChangeTool().validate_input(ToolContext("what changed?", [a, b]))  # does not raise
+
+    def test_two_sar_scenes_share_their_backscatter_band(self, sar):
+        """Two radar scenes are a supported change comparison — the router now defaults to it."""
+        ChangeTool().validate_input(ToolContext("what changed?", [sar, sar]))  # does not raise
+
+
 class TestAlignsAndSurfacesGeometry:
     """A partially-overlapping pair on the same CRS must be resampled onto a common grid, with the
     partial-overlap geometry warning surfaced to the user rather than silently dropped (§8, §32)."""

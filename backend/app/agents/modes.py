@@ -177,15 +177,56 @@ def _normalize_pair(
         )
 
     mode = InputMode.OPTICAL_SAR_PAIR if cross_modal else InputMode.BITEMPORAL_PAIR
+    warnings = list(compat.warnings)
+    warnings.extend(_undetermined_modality_warnings(modalities, mode))
     return NormalizedRequest(
         query=query,
         rasters=list(rasters),
         mode=mode,
         modalities=modalities,
         image_ids=ids,
-        pair_warnings=list(compat.warnings),
+        pair_warnings=warnings,
         details=details,
     )
+
+
+def _undetermined_modality_warnings(
+    modalities: list[Modality], mode: InputMode
+) -> list[str]:
+    """State that a pair mode was *assumed*, when one input's sensor could not be determined.
+
+    ``cross_modal`` requires a recognised ``OPTICAL`` and a recognised ``SAR``, so any pair
+    containing an ``UNKNOWN`` falls to :attr:`InputMode.BITEMPORAL_PAIR` — which asserts the two are
+    the same sensor at two dates. That may be right, but nothing established it: the modality is
+    undetermined precisely because the file carried no sensor evidence.
+    :func:`app.geospatial.raster.infer_modality` reads only filename tokens and band descriptions,
+    so a genuine SAR scene exported as ``subset_1.tif`` with an unlabelled band is undetermined, and
+    the pair is then labelled bi-temporal in the trace, the answer and the database row.
+
+    So the assumption is recorded as a warning rather than left implicit (§49). It is not an error:
+    an unlabelled optical pair is legitimately bi-temporal, and the tool contract refuses the
+    combinations that genuinely cannot be analysed.
+    """
+    positions = [i + 1 for i, m in enumerate(modalities) if m is Modality.UNKNOWN]
+    if not positions or mode is not InputMode.BITEMPORAL_PAIR:
+        return []
+    known = [m for m in modalities if m is not Modality.UNKNOWN]
+    if len(positions) == len(modalities):
+        subject = "Neither image's sensor type"
+        verb = "could be determined from its metadata"
+    else:
+        subject = f"The sensor type of image {positions[0]}"
+        verb = "could not be determined from its metadata"
+    tail = (
+        f"the other image reads as {known[0].value}, and "
+        if len(known) == 1
+        else ""
+    )
+    return [
+        f"{subject} {verb}, so {tail}the two were treated as the same sensor at two dates rather "
+        "than as a cross-sensor pair. If one of these is radar, declare the sensor on upload so "
+        "the optical/SAR analysis runs instead."
+    ]
 
 
 __all__ = ["MAX_INPUTS", "NormalizedRequest", "normalize_request"]

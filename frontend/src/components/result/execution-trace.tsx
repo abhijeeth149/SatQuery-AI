@@ -2,7 +2,7 @@ import type { TraceStep, StepStatus } from '@/types/api'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { prettifyKey } from '@/lib/classes'
-import { formatDuration } from '@/lib/format'
+import { formatDuration, formatStepDuration } from '@/lib/format'
 import { cn } from '@/lib/utils'
 import {
   CheckCircle2,
@@ -36,7 +36,12 @@ function formatParamValue(value: unknown): string {
 }
 
 export function ExecutionTrace({ trace }: { trace: TraceStep[] }) {
-  const total = trace.reduce((sum, s) => sum + (s.duration_ms || 0), 0)
+  // Only measured steps are summed, and how many were not timed is stated rather than papered over.
+  // Substituting a nominal 25 ms for each untimed step used to push this total past the backend's
+  // own measured duration shown in the page header — two numbers for one run, neither explained.
+  const measured = trace.filter((s) => typeof s.duration_ms === 'number')
+  const total = measured.reduce((sum, s) => sum + (s.duration_ms ?? 0), 0)
+  const untimed = trace.length - measured.length
 
   return (
     <Card>
@@ -47,7 +52,8 @@ export function ExecutionTrace({ trace }: { trace: TraceStep[] }) {
             Execution trace
           </CardTitle>
           <span className="text-xs text-muted-foreground">
-            {trace.length} steps · {formatDuration(total)}
+            {trace.length} steps · {formatDuration(total)} measured
+            {untimed > 0 && ` · ${untimed} not timed separately`}
           </span>
         </div>
       </CardHeader>
@@ -77,7 +83,7 @@ export function ExecutionTrace({ trace }: { trace: TraceStep[] }) {
                     </Badge>
                   )}
                   <span className="text-xs text-muted-foreground">
-                    {meta.label} · {formatDuration(step.duration_ms)}
+                    {meta.label} · {formatStepDuration(step.duration_ms)}
                   </span>
                 </div>
                 {step.summary && (
@@ -88,7 +94,12 @@ export function ExecutionTrace({ trace }: { trace: TraceStep[] }) {
                     {step.warnings.map((w, wi) => (
                       <li
                         key={wi}
-                        className="flex items-start gap-1.5 text-xs text-warning-foreground"
+                        // `--warning-foreground` is the colour that sits *on* a filled `bg-warning`
+                        // chip; in dark mode it is near-black. Used here, over the card's own dark
+                        // background, it made every step warning unreadable — the caveats a run
+                        // depends on being read, silently invisible. Plain foreground text with the
+                        // warning-coloured icon carries the same signal at full contrast.
+                        className="flex items-start gap-1.5 text-xs text-foreground/90"
                       >
                         <AlertTriangle
                           className="mt-0.5 h-3 w-3 shrink-0 text-warning"

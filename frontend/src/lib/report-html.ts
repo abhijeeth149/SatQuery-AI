@@ -164,10 +164,15 @@ export function renderReportHtml(
   model: ReportModel,
   imageSrc: (a: Artifact) => string = (a) => a.url,
 ): string {
-  const declined = model.declined
-    ? `<div class="callout warning"><p><strong>Insufficient evidence for a reliable conclusion.</strong></p></div>`
+  // The answer, then the caveat about it — never a banner declining to conclude above a measured
+  // conclusion. `withheld` is the separate case where there is no answer to state at all.
+  const answerBlock = model.withheld
+    ? `<div class="callout warning"><p class="label">Answer withheld</p><p class="answer">${escapeHtml(model.answer)}</p></div>`
+    : `<p class="answer">${escapeHtml(model.answer)}</p>`
+  const caveat = model.caveat
+    ? `<div class="callout warning"><p><strong>${escapeHtml(model.caveat.title)}</strong></p><p>${escapeHtml(model.caveat.body)}</p></div>`
     : ''
-  const withheld = model.withheldDraft
+  const withheldDraft = model.withheldDraft
     ? `<div class="withheld"><p class="label">Withheld phrasing (not asserted)</p><p class="q">${escapeHtml(model.withheldDraft)}</p></div>`
     : ''
   const fixtureTag = model.fixture ? `<span class="tag">recorded run</span>` : ''
@@ -219,9 +224,9 @@ export function renderReportHtml(
     <p class="label">Answer</p>
     <span class="chip ${escapeHtml(model.confidenceLevel)}">${escapeHtml(model.confidenceLevel)} confidence</span>
   </div>
-  ${declined}
-  <p class="answer">${escapeHtml(model.answer)}</p>
-  ${withheld}
+  ${answerBlock}
+  ${caveat}
+  ${withheldDraft}
 </section>
 
 ${renderImagery(model.artifacts, imageSrc)}

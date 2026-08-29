@@ -246,12 +246,27 @@ export function ReportDocument({ model }: { model: ReportModel }) {
               {model.confidenceLevel} confidence
             </span>
           </div>
-          {model.declined && (
-            <div className="mt-2 break-inside-avoid rounded-md border border-amber-300 bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-900 [print-color-adjust:exact] [-webkit-print-color-adjust:exact]">
-              Insufficient evidence for a reliable conclusion.
+          {/*
+           * The answer comes first, then the caveat about it. The old order printed
+           * "Insufficient evidence for a reliable conclusion." in a banner above the measured
+           * answer, so the report declined to conclude and concluded in the same section.
+           */}
+          {model.withheld ? (
+            <div className="mt-2 break-inside-avoid rounded-md border border-amber-300 bg-amber-50 px-4 py-3 [print-color-adjust:exact] [-webkit-print-color-adjust:exact]">
+              <p className="text-[11px] font-medium uppercase tracking-wide text-amber-900">
+                Answer withheld
+              </p>
+              <p className="mt-1 text-base leading-relaxed text-slate-900">{model.answer}</p>
+            </div>
+          ) : (
+            <p className="mt-2 text-base leading-relaxed text-slate-900">{model.answer}</p>
+          )}
+          {model.caveat && (
+            <div className="mt-2 break-inside-avoid rounded-md border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900 [print-color-adjust:exact] [-webkit-print-color-adjust:exact]">
+              <p className="font-semibold">{model.caveat.title}</p>
+              <p className="mt-1">{model.caveat.body}</p>
             </div>
           )}
-          <p className="mt-2 text-base leading-relaxed text-slate-900">{model.answer}</p>
           {model.withheldDraft && (
             <div className="mt-2 rounded-md border border-dashed border-slate-300 bg-slate-50 px-4 py-3 [print-color-adjust:exact] [-webkit-print-color-adjust:exact]">
               <p className="text-[11px] font-medium uppercase tracking-wide text-slate-500">

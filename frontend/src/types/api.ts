@@ -116,7 +116,12 @@ export interface TraceStep {
   step: TraceStepName | (string & {})
   tool: string | null
   status: StepStatus
-  duration_ms: number
+  /**
+   * Measured wall-clock milliseconds, or `null` for a step the backend does not time separately
+   * (mode normalisation is counted inside routing). A step that finished in under half a millisecond
+   * measures 0 — which is a result, not a missing value.
+   */
+  duration_ms: number | null
   summary: string
   parameters: Record<string, unknown>
   warnings: string[]
@@ -334,7 +339,8 @@ export interface ChangeTransition {
   pixel_count: number
   fraction_of_change: number
   percentage_of_change: number
-  area_m2: number
+  /** Null for a non-georeferenced pair: pixel counts are known, ground area is not. */
+  area_m2: number | null
   mean_magnitude: number
   spectral_agreement: number
 }
@@ -344,10 +350,12 @@ export interface ChangeClassDelta {
   pixels_before: number
   pixels_after: number
   pixel_delta: number
-  area_m2_before: number
-  area_m2_after: number
-  area_m2_delta: number
-  relative_delta: number
+  // Null whenever the pair carries no pixel size. `pixel_delta` and `relative_delta` are measured
+  // either way, so the direction of a class change is always known even when its area is not.
+  area_m2_before: number | null
+  area_m2_after: number | null
+  area_m2_delta: number | null
+  relative_delta: number | null
 }
 
 export interface ChangeIndexDelta {
@@ -377,7 +385,8 @@ export interface ChangeData {
   valid_pixels: number
   changed_fraction: number
   changed_percentage: number
-  changed_area_m2: number
+  /** Null for a non-georeferenced pair — the changed *pixel* count is still measured. */
+  changed_area_m2: number | null
   bimodality: number
   threshold_quality: number
   evidence_split: ChangeEvidenceSplit
