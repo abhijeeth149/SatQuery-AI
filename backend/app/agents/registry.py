@@ -38,8 +38,10 @@ from ..core.errors import (
 from ..core.logging import get_logger
 from ..core.types import QueryTask
 from .tools import (
+    AdaptedSceneCaptioningTool,
     CaptioningTool,
     ChangeTool,
+    ChangeVqaTool,
     FusionTool,
     GroundingTool,
     LandCoverTool,
@@ -58,12 +60,19 @@ logger = get_logger(__name__)
 # The tools this prototype ships, in a stable order. Order is meaningful twice over: it breaks ties
 # when two tools share a task at the same tier (so the single-image SAR tool is tried before the pair
 # fusion tool for optical/SAR analysis), and it is the order ``/api/models`` lists them.
+#
+# ``AdaptedSceneCaptioningTool`` is the one PREFERRED rung: the learned EuroSAT-adapted ResNet-18. It
+# sits ahead of ``CaptioningTool`` — which answers the same task deterministically — so the tier sort
+# tries it first and falls through to the classical analyser whenever its checkpoint, torch or the
+# ``enable_learned_models`` setting is missing. The deterministic tool is not replaced or altered.
 _TOOL_TYPES: tuple[type[Tool], ...] = (
     LandCoverTool,
     GroundingTool,
     VqaTool,
+    AdaptedSceneCaptioningTool,
     CaptioningTool,
     ChangeTool,
+    ChangeVqaTool,
     SarTool,
     FusionTool,
 )
@@ -94,6 +103,7 @@ _CAPABILITY_PHRASES: dict[QueryTask, str] = {
     QueryTask.CAPTIONING: "describe an optical scene",
     QueryTask.GROUNDING: "locate a land-cover type as regions",
     QueryTask.CHANGE_DETECTION: "detect and describe change between two dates",
+    QueryTask.CHANGE_VQA: "answer a question about what changed between two dates",
     QueryTask.OPTICAL_SAR_ANALYSIS: "analyse a SAR image, or fuse an optical and SAR pair",
 }
 
@@ -153,8 +163,12 @@ class ToolRegistry:
             task: tuple(sorted(members, key=lambda t: t.tier))
             for task, members in grouped.items()
         }
-        # Change detection and change VQA are one measurement asked in two moods; the change tool
-        # serves both (see ChangeTool). Alias rather than register the same instance twice.
+        # Change detection and change VQA were once one chain, aliased here. They are now separate
+        # tools (see ChangeVqaTool) because they answer different questions from the same
+        # measurement, so no alias is needed — and the alias would have silently masked a missing
+        # change-VQA registration. Fall back to the change chain only if no VQA tool is registered,
+        # so a bespoke registry built from a subset of tools still serves the task rather than
+        # reporting it undispatchable.
         if QueryTask.CHANGE_DETECTION in chains:
             chains.setdefault(QueryTask.CHANGE_VQA, chains[QueryTask.CHANGE_DETECTION])
         return chains
@@ -189,13 +203,17 @@ class ToolRegistry:
 
         Kept separate from :meth:`describe_all` because ``describe()`` is a fixed four-key shape
         that callers compare by equality. ``available`` is *probed*, not asserted: a tool appears
-        as ready only if it can actually run right now (§26).
+        as ready only if it can actually run right now (§26). ``runtime`` is present only for a tool
+        backed by a real artefact, and carries the probed checkpoint path and mode.
         """
         out: list[dict[str, Any]] = []
         for tool in self._tools:
             entry = dict(tool.describe())
             entry["contract"] = tool.describe_contract()
             entry["available"] = bool(tool.available())
+            runtime = tool.describe_runtime()
+            if runtime is not None:
+                entry["runtime"] = runtime
             out.append(entry)
         return out
 

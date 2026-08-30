@@ -65,7 +65,10 @@ export function RecentAnalyses() {
                     <TableRow key={row.id}>
                       <TableCell>
                         <Link
-                          to={`/analysis/${row.id}`}
+                          // A recorded row links to its recording (`?demo=1`); a live row links to
+                          // the live run. Both namespaces use the same id sequence, so the id alone
+                          // does not say which analysis this row is.
+                          to={`/analysis/${row.id}${row.fixture ? '?demo=1' : ''}`}
                           className="font-medium text-primary hover:underline"
                         >
                           {row.title}

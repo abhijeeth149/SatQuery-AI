@@ -45,6 +45,9 @@ storage/previews/
 ml/checkpoints/*
 !ml/checkpoints/.gitkeep
 ml/datasets/processed/
+# Downloaded open datasets. EuroSAT RGB is ~94 MB / 27000 files; it is fetched on
+# demand by `python -m ml.adaptation.prepare_data`, never committed.
+ml/datasets/eurosat_raw/
 reports/*.json
 reports/*.html
 

@@ -10,26 +10,26 @@
   "task": "land_cover_analysis",
   "tool": "landcover-spectral-cv",
   "tier": "classical",
-  "duration_ms": 251.69,
+  "duration_ms": 241.07,
   "answer": "The scene is predominantly bare soil (69% of classified pixels). Class breakdown: bare soil 69%, vegetation 23%, water 4%.",
   "answer_withheld": null,
   "confidence": {
     "level": "high",
-    "score": 0.8777,
+    "score": 0.8731,
     "sufficient": true,
     "limiting_factor": "class_separability",
     "reasons": [
-      "Mean class separability 0.88 across the detected classes (method: spectral-indices).",
+      "Mean class separability 0.87 across the detected classes (method: spectral-indices).",
       "Input image quality scored 0.99 (dynamic range 0.73, saturation 0.02, nodata 0.00).",
       "No processing warnings were raised."
     ],
     "factors": [
       {
         "name": "class_separability",
-        "value": 0.8777,
+        "value": 0.8731,
         "weight": 0.45,
         "kind": "gate",
-        "reason": "Mean class separability 0.88 across the detected classes (method: spectral-indices)."
+        "reason": "Mean class separability 0.87 across the detected classes (method: spectral-indices)."
       },
       {
         "name": "warnings",
@@ -49,8 +49,8 @@
   },
   "evidence": [
     "Classification method: spectral-indices.",
-    "Dominant class is bare soil, covering 69.2% of valid pixels.",
-    "Measured class separability: 0.88.",
+    "Dominant class is bare soil, covering 68.5% of valid pixels.",
+    "Measured class separability: 0.87.",
     "Spectral indices used: mndwi, ndvi, ndbi."
   ],
   "warnings": [],
@@ -61,23 +61,23 @@
       "ndvi",
       "ndbi"
     ],
-    "separability": 0.8777,
+    "separability": 0.8731,
     "classes": [
       {
         "class": "bare_soil",
-        "pixel_count": 181419,
-        "fraction": 0.6921,
-        "percentage": 69.21,
-        "area_m2": 18141900.0,
+        "pixel_count": 179623,
+        "fraction": 0.6852,
+        "percentage": 68.52,
+        "area_m2": 17962300.0,
         "mean_evidence": 0.0
       },
       {
         "class": "vegetation",
-        "pixel_count": 59652,
-        "fraction": 0.2276,
-        "percentage": 22.76,
-        "area_m2": 5965200.0,
-        "mean_evidence": 0.8225
+        "pixel_count": 59644,
+        "fraction": 0.2275,
+        "percentage": 22.75,
+        "area_m2": 5964400.0,
+        "mean_evidence": 0.8226
       },
       {
         "class": "water",
@@ -89,19 +89,19 @@
       },
       {
         "class": "built_up",
-        "pixel_count": 9501,
-        "fraction": 0.0362,
-        "percentage": 3.62,
-        "area_m2": 950100.0,
-        "mean_evidence": 0.6521
+        "pixel_count": 11305,
+        "fraction": 0.0431,
+        "percentage": 4.31,
+        "area_m2": 1130500.0,
+        "mean_evidence": 0.6919
       }
     ],
     "dominant": {
       "class": "bare_soil",
-      "pixel_count": 181419,
-      "fraction": 0.6921,
-      "percentage": 69.21,
-      "area_m2": 18141900.0,
+      "pixel_count": 179623,
+      "fraction": 0.6852,
+      "percentage": 68.52,
+      "area_m2": 17962300.0,
       "mean_evidence": 0.0
     },
     "warnings": [],
@@ -268,7 +268,7 @@
       "step": "validate",
       "tool": "landcover-spectral-cv",
       "status": "ok",
-      "duration_ms": 0.0,
+      "duration_ms": 0.01,
       "summary": "Inputs accepted: modality and image count satisfy the tool's preconditions.",
       "parameters": {
         "images": 1,
@@ -282,7 +282,7 @@
       "step": "preprocess",
       "tool": "landcover-spectral-cv",
       "status": "ok",
-      "duration_ms": 45.63,
+      "duration_ms": 48.06,
       "summary": "Inputs inspected and readied (quality assessed; any pair aligned to a common grid).",
       "parameters": {
         "input_quality": 0.9895
@@ -293,7 +293,7 @@
       "step": "execute",
       "tool": "landcover-spectral-cv",
       "status": "ok",
-      "duration_ms": 205.85,
+      "duration_ms": 192.82,
       "summary": "Ran landcover-spectral-cv (classical tier) over the prepared raster(s).",
       "parameters": {
         "tier": "classical"
@@ -304,11 +304,11 @@
       "step": "score",
       "tool": "landcover-spectral-cv",
       "status": "ok",
-      "duration_ms": 0.21,
+      "duration_ms": 0.18,
       "summary": "Confidence computed from measured evidence and the answer phrased from those measurements.",
       "parameters": {
         "confidence": "high",
-        "score": 0.8776897416971269
+        "score": 0.8730954614680096
       },
       "warnings": []
     },

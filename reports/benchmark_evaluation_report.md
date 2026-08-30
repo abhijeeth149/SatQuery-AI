@@ -1,6 +1,6 @@
 # SatQuery AI — Benchmark Evaluation Report
 
-**Generated At:** `2026-08-27T20:02:59.604229+00:00`
+**Generated At:** `2026-08-30T12:03:17.698181+00:00`
 
 > **Integrity Statement:** All metrics in this report are computed from real tool
 > execution on available data. No metric is hardcoded or fabricated. Where real
@@ -12,7 +12,7 @@
 
 | Metric | Value |
 |:-------|------:|
-| Sample Count | 10 |
+| Sample Count | 1 |
 | Exact Match Accuracy | 100.00% |
 | Semantic Similarity | 1.0000 |
 
@@ -22,10 +22,10 @@ Metrics computed from real tool execution on available samples. Fixture-only sam
 
 | Metric | Value |
 |:-------|------:|
-| Sample Count | 10 |
-| Mean IoU | 0.1580 |
-| Precision | 0.1111 |
-| Recall | 0.5000 |
+| Sample Count | 1 |
+| Mean IoU | 0.9557 |
+| Precision | 1.0000 |
+| Recall | 1.0000 |
 
 Metrics computed from real tool predictions against ground-truth bounding boxes.
 
@@ -35,9 +35,9 @@ Metrics computed from real tool predictions against ground-truth bounding boxes.
 |:-------|------:|
 | Sample Count | 1 |
 | Evaluation Method | real_tool_vs_ground_truth |
-| F1 Score | 0.8683 |
-| IoU | 0.7672 |
-| Dice Coefficient | 0.8683 |
+| F1 Score | 0.8824 |
+| IoU | 0.7896 |
+| Dice Coefficient | 0.8824 |
 
 Metrics computed by running the actual change detection tool on synthetic demo GeoTIFFs and comparing against the known change_gt.tif mask.
 
@@ -46,10 +46,10 @@ Metrics computed by running the actual change detection tool on synthetic demo G
 | Metric | Value |
 |:-------|------:|
 | Sample Count | 1 |
-| Fused Accuracy | 0.9851 |
+| Fused Accuracy | 0.9843 |
 | Optical-Only Accuracy | 0.0000 |
 | SAR-Only Accuracy | 0.0000 |
-| Joint Improvement | +0.9851 |
+| Joint Improvement | +0.9843 |
 
 All metrics computed from real tool execution on demo GeoTIFFs. Fusion accuracy derived from cross-modal agreement fraction. Optical accuracy from spectral separability score. SAR accuracy from regime coverage.
 

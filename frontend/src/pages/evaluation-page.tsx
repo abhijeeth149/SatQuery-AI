@@ -78,20 +78,28 @@ const BENCHMARKS: BenchmarkRow[] = [
     status: 'evaluated',
     definition: 'Decision-level arbitration agreement percentage resolving optical/radar spectral and structural ambiguities.',
   },
+  // Read from ml/checkpoints/satquery-rs-visual-v1/evaluation.json, which the adaptation run wrote
+  // itself. This row used to read `BigEarthNet-19` / `rs-cnn-6band + LoRA (r=8, alpha=16)` with a
+  // 92.40% element accuracy — none of which existed: no BigEarthNet data was ever downloaded, no
+  // LoRA was ever implemented, and the checkpoint behind it was trained on synthetic reflectance
+  // centroids. The figures below are the measured top-1 accuracy of the real EuroSAT linear probe
+  // on its own 400-image held-out split, and the row is labelled as an adaptation evaluation
+  // rather than a benchmark score because the prescribed SIH benchmark was not run.
   {
-    dataset: 'BigEarthNet-19',
-    task: 'Remote Sensing Adaptation',
+    dataset: 'EuroSAT (RGB) — real Sentinel-2, MIT licence',
+    task: 'Remote-Sensing Adaptation Evaluation (not an SIH benchmark)',
     metrics: [
-      { name: 'Element Accuracy', score: '92.40%' },
-      { name: 'Micro Precision', score: '1.0000' },
-      { name: 'Mean Per-Class F1', score: '0.0702' },
+      { name: 'Top-1 Accuracy', score: '87.25%' },
+      { name: 'Correct', score: '349 / 400' },
+      { name: 'Trainable Parameters', score: '5,130' },
     ],
-    split: 'test (45 patches)',
-    sampleCount: 45,
-    modelVersion: 'rs-cnn-6band + LoRA (r=8, alpha=16)',
-    evaluatedAt: '2026-08-28T01:33:18Z',
+    split: 'held-out test (400 images, 10 classes x 40)',
+    sampleCount: 400,
+    modelVersion: 'satquery-rs-visual-v1 (resnet18 IMAGENET1K_V1, linear probe)',
+    evaluatedAt: '2026-08-30T10:59:15Z',
     status: 'evaluated',
-    definition: 'Multi-label classification performance of PyTorch adapted CNN with low-rank adapter layers on 6 Sentinel-2 spectral bands.',
+    definition:
+      'Top-1 accuracy of the adapted EuroSAT scene classifier on its own held-out test split, drawn from slices disjoint from train and validation. A real torchvision ResNet-18 with genuine ImageNet weights, backbone frozen, 10-class head retrained for 3 epochs. This is a specialist visual evidence component, not the complete VQA system, and this is not the SIH prescribed benchmark, which was not run.',
   },
 ]
 
@@ -122,7 +130,7 @@ export function EvaluationPage() {
     <div className="space-y-8">
       <PageHeader
         title="Benchmark Evaluation"
-        description="Formal benchmark metrics for SatQuery AI across standard remote-sensing vision-language datasets (RSVQA, VRSBench, CDVQA) and BigEarthNet parameter-efficient adaptation."
+        description="Formal benchmark metrics for SatQuery AI across standard remote-sensing vision-language datasets (RSVQA, VRSBench, CDVQA), plus the EuroSAT remote-sensing adaptation evaluation of the satquery-rs-visual-v1 linear probe."
         actions={
           <Button onClick={handleRunEvaluation} disabled={refreshing} variant="outline" className="gap-2">
             <RefreshCw className={`h-4 w-4 ${refreshing ? 'animate-spin' : ''}`} />

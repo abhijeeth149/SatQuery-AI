@@ -48,14 +48,25 @@ def test_upload_invalid_format(client):
     assert data["error_code"] == "UNSUPPORTED_FORMAT"
 
 
-def test_models_endpoint_has_7_ready_components(client):
-    """/api/models lists the seven registered tools, under the names they actually have.
+def test_models_endpoint_lists_the_registered_components(client):
+    """/api/models lists the registered tools, under the names they actually have.
 
     This test used to require names like ``OpticalLandcoverSpecialist`` and ``FusionSpecialist``.
     No such component exists — nothing in the codebase has ever been called that. They named a
     model line-up the project does not have, which is exactly the claim §26 forbids, and the test
     failed against the endpoint that reports the truth. The registry entries below are the tools
     the router can actually dispatch to; each declares the input contract it is gated on.
+
+    The count went from seven to eight when change VQA stopped being an alias of change detection
+    and became ``change-vqa-cv``. The two answer different questions from the same measurement — a
+    report versus an answer to what was asked — so the registry now dispatches them separately and
+    the endpoint reports both rather than crediting one for the other's work.
+
+    It went from eight to nine when ``satquery-rs-visual-v1`` — the EuroSAT-adapted ResNet-18 — was
+    registered as a PREFERRED rung above classical captioning. That is the one non-classical entry,
+    and it is the only one whose ``available`` may read false: it is gated on a real checkpoint, the
+    learned-models setting and an importable torch, so this asserts its tier and provenance rather
+    than pinning its readiness on the host that runs the test.
     """
     response = client.get("/api/models")
     assert response.status_code == 200
@@ -69,14 +80,28 @@ def test_models_endpoint_has_7_ready_components(client):
             "vqa-landcover-cv",
             "captioning-landcover-cv",
             "change-cva-cv",
+            "change-vqa-cv",
             "sar-backscatter-cv",
             "fusion-decision-cv",
+            "satquery-rs-visual-v1",
         ]
     )
-    # Every one is a classical computer-vision tool: no learned weights are loaded anywhere, so
-    # none may be advertised as `preferred` or `fallback` (§49).
-    assert {t["tier"] for t in tools} == {"classical"}
-    assert all(t.get("available") is True for t in tools)
+    by_name = {t["name"]: t for t in tools}
+    learned = by_name.pop("satquery-rs-visual-v1")
+
+    # Every remaining tool is a classical computer-vision analyser with no learned weights, so none
+    # may be advertised as `preferred` or `fallback` (§49), and each is always runnable.
+    assert {t["tier"] for t in by_name.values()} == {"classical"}
+    assert all(t.get("available") is True for t in by_name.values())
+    assert all(t.get("runtime") is None for t in by_name.values())
+
+    # The learned rung earns its tier from a real trained checkpoint, and reports the artefact.
+    assert learned["tier"] == "preferred"
+    assert learned["runtime"]["model_id"] == "satquery-rs-visual-v1"
+    assert learned["runtime"]["mode"] in {"LIVE", "UNAVAILABLE"}
+    assert learned["status"] == ("ready" if learned["available"] else "unavailable")
+    assert (learned["runtime"]["mode"] == "LIVE") is bool(learned["available"])
+
     # The contract each tool is gated on is published, not implied (§6).
     for tool in tools:
         contract = tool["contract"]

@@ -16,15 +16,18 @@ export default defineConfig({
     // Proxy API calls to the FastAPI backend during development so the browser
     // talks to a same-origin URL and CORS never enters the picture locally.
     proxy: {
+      // Target is 127.0.0.1, not `localhost`, on purpose. Uvicorn binds IPv4 only, while Node
+      // resolves `localhost` to ::1 first on Windows — so every proxied request paid a refused
+      // IPv6 connect before falling back to IPv4, and would fail outright without that fallback.
       '/api': {
-        target: process.env.VITE_API_PROXY_TARGET ?? 'http://localhost:8000',
+        target: process.env.VITE_API_PROXY_TARGET ?? 'http://127.0.0.1:8000',
         changeOrigin: true,
       },
       // Upload previews are served by the backend's StaticFiles mount at /storage, and the upload
       // response returns that path verbatim. Without this entry the <img> resolved against the Vite
       // dev server instead, so every input thumbnail 404'd and rendered as a broken image.
       '/storage': {
-        target: process.env.VITE_API_PROXY_TARGET ?? 'http://localhost:8000',
+        target: process.env.VITE_API_PROXY_TARGET ?? 'http://127.0.0.1:8000',
         changeOrigin: true,
       },
     },

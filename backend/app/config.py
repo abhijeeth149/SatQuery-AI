@@ -66,9 +66,14 @@ class Settings(BaseSettings):
     max_query_length: int = 1000
 
     # --- optional learned models ---------------------------------------------
-    # Off by default: the deterministic backbone is the guaranteed path. Enabling
-    # this only *permits* a checkpoint to be used, it never fabricates one.
-    enable_learned_models: bool = False
+    # On by default, because a real adapted checkpoint now exists: ml/checkpoints/
+    # satquery-rs-visual-v1, produced by `python -m ml.adaptation.train` on EuroSAT (RGB). The flag
+    # only *permits* a checkpoint to be used — it never fabricates one. Availability is gated on all
+    # three of this flag, an actual weights file on disk and an importable torch, so a clone without
+    # the checkpoint (or without torch) still runs every deterministic analyser unchanged and simply
+    # reports the learned rung as UNAVAILABLE. Set SATQUERY_ENABLE_LEARNED_MODELS=false to force the
+    # deterministic path even when the checkpoint is present.
+    enable_learned_models: bool = True
     checkpoint_dir: Path = Field(default=REPO_ROOT / "ml" / "checkpoints")
 
     # --- api ------------------------------------------------------------------

@@ -6,22 +6,22 @@ scene's ground truth shaped the design, and each one ruled out a simpler impleme
 
 1. **The source is the classifier cascade, never a raw index.** Thresholding NDBI on its own
    scores IoU 0.0406 for built-up (precision 0.0406, recall 0.9997) where the cascade scores
-   0.6334, because bare soil is short-wave-infrared-bright too. An index alone finds nearly
+   0.6475, because bare soil is short-wave-infrared-bright too. An index alone finds nearly
    everything and is nearly always wrong, which is exactly the shape of a fabricated detection.
 
 2. **Pixel accuracy does not imply countability, and radar is what supplies it.** From optical
-   alone the built-up mask reaches pixel F1 0.7756 and yet region-level precision *and* recall
-   of 0.000 at every IoU threshold from 0.1 to 0.7: one predicted component touches 19 of the
-   20 truth blocks, because false-positive soil pixels between the blocks bridge them into one
+   alone the built-up mask reaches pixel F1 0.7861 and yet region-level precision *and* recall
+   of 0.000 at every IoU threshold from 0.1 to 0.7: one predicted component touches all 20 of
+   the truth blocks, because false-positive soil pixels between the blocks bridge them into one
    blob. With a co-registered SAR image it returns 20 regions for 20 blocks, all matched, mean
-   IoU 0.9930. Bare soil moves the same way and for the same reason (9 regions for 1 truth,
-   precision 0.111 → 1 region at IoU 0.9890); water and vegetation are 1.000/1.000 from every
+   IoU 0.9930. Bare soil moves the same way and for the same reason (12 regions for 1 truth,
+   precision 0.083 → 1 region at IoU 0.9890); water and vegetation are 1.000/1.000 from every
    source. Built-up versus bare soil is precisely the axis radar arbitrates (architecture §4.7,
    Rule A), so this module reports a *count* of those two classes only when radar actually
    separated a double-bounce population, and states the physical reason when it cannot.
 
 3. **No morphological cleaning by default.** Opening and closing the built-up mask at radius 1
-   leaves 15 of 25 regions and at radius 2 leaves 2, while gaining no true positives at all.
+   leaves 19 of 23 regions and at radius 2 leaves 10, while gaining no true positives at all.
    Cleaning makes a mask look tidier and makes the objects in it disappear.
 
 4. **Sectors are selected by majority overlap, and the overlap fraction is reported.** Between

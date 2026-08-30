@@ -24,7 +24,7 @@ from app.agents.registry import (
     ToolRegistry,
     default_registry,
 )
-from app.agents.tools import Prepared, Tool, ToolContext, ToolResult, ToolTier
+from app.agents.tools import ChangeTool, Prepared, Tool, ToolContext, ToolResult, ToolTier
 from app.core.errors import (
     ErrorCode,
     ModelUnavailableError,
@@ -147,22 +147,46 @@ class TestChains:
             QueryTask.LAND_COVER_ANALYSIS: "landcover-spectral-cv",
             QueryTask.GROUNDING: "grounding-spectral-cv",
             QueryTask.VQA: "vqa-landcover-cv",
-            QueryTask.CAPTIONING: "captioning-landcover-cv",
             QueryTask.CHANGE_DETECTION: "change-cva-cv",
         }
         for task, name in expected.items():
             chain = registry.tools_for(task)
             assert [t.name for t in chain] == [name]
 
+    def test_captioning_is_a_two_rung_chain_learned_model_first(self, registry):
+        """Captioning is the one task with a learned rung above the deterministic analyser (§18).
+
+        The adapted EuroSAT ResNet-18 leads because its tier is PREFERRED; the classical
+        ``captioning-landcover-cv`` remains registered behind it, which is what makes the learned
+        model's absence a degradation rather than an outage.
+        """
+        chain = registry.tools_for(QueryTask.CAPTIONING)
+        assert [t.name for t in chain] == ["satquery-rs-visual-v1", "captioning-landcover-cv"]
+        assert chain[0].tier is ToolTier.PREFERRED
+        assert chain[1].tier is ToolTier.CLASSICAL
+
     def test_optical_sar_is_a_two_tool_chain_single_image_tool_first(self, registry):
         chain = registry.tools_for(QueryTask.OPTICAL_SAR_ANALYSIS)
         # Both classical, told apart by inputs; the single-image SAR tool leads the pair fusion tool.
         assert [t.name for t in chain] == ["sar-backscatter-cv", "fusion-decision-cv"]
 
-    def test_change_vqa_aliases_change_detection(self, registry):
-        assert registry.tools_for(QueryTask.CHANGE_VQA) == registry.tools_for(
-            QueryTask.CHANGE_DETECTION
-        )
+    def test_change_vqa_has_its_own_chain(self, registry):
+        """Change VQA is its own tool, not an alias of change detection.
+
+        The two share one measurement but answer different questions — a report of what differs
+        versus an answer to what was asked — so each has to be dispatchable in its own right. While
+        VQA was an alias, the registry could not tell the difference and credited the change report
+        for answering a question it had not read.
+        """
+        vqa = registry.tools_for(QueryTask.CHANGE_VQA)
+        detection = registry.tools_for(QueryTask.CHANGE_DETECTION)
+        assert [t.name for t in vqa] == ["change-vqa-cv"]
+        assert [t.name for t in detection] == ["change-cva-cv"]
+
+    def test_change_vqa_falls_back_to_the_change_chain_in_a_partial_registry(self):
+        """A registry built without the VQA tool still serves the task rather than dead-ending."""
+        partial = ToolRegistry([ChangeTool()])
+        assert [t.name for t in partial.tools_for(QueryTask.CHANGE_VQA)] == ["change-cva-cv"]
 
     def test_chains_are_ordered_by_ascending_tier(self, registry):
         for task in registry.supported_tasks():
@@ -189,10 +213,42 @@ class TestChains:
     def test_describe_all_lists_each_tool_once(self, registry):
         described = registry.describe_all()
         names = [d["name"] for d in described]
-        assert len(names) == len(set(names)) == 7  # seven distinct tools, no duplicates
-        assert "change-cva-cv" in names  # the change tool appears once despite serving two tasks
+        # Nine distinct tools, no duplicates: eight deterministic analysers plus the one learned
+        # rung, the EuroSAT-adapted scene classifier registered above classical captioning.
+        assert len(names) == len(set(names)) == 9
+        assert "change-cva-cv" in names
+        assert "change-vqa-cv" in names  # change VQA is a tool of its own, not an alias
+        assert "satquery-rs-visual-v1" in names
         for d in described:
             assert set(d) == {"task", "name", "tier", "summary"}
+
+    def test_describe_with_contracts_reports_the_learned_checkpoint_additively(self, registry):
+        """``runtime`` carries the checkpoint; ``describe()``'s four-key shape stays untouched (§26).
+
+        The learned entry is the only one with a ``runtime`` block, because it is the only tool with
+        an artefact on disk to report. Whether it reads LIVE depends on the host, so this asserts the
+        shape and the mode vocabulary rather than a fixed value — a checkpoint-free clone must pass.
+        """
+        entries = {e["name"]: e for e in registry.describe_all_with_contracts()}
+        for name, entry in entries.items():
+            if name == "satquery-rs-visual-v1":
+                continue
+            assert "runtime" not in entry, name
+
+        runtime = entries["satquery-rs-visual-v1"]["runtime"]
+        assert runtime["model_id"] == "satquery-rs-visual-v1"
+        assert runtime["mode"] in {"LIVE", "UNAVAILABLE"}
+        if runtime["mode"] == "LIVE":
+            assert runtime["checkpoint"].endswith("model.pt")
+            assert runtime["checkpoint_present"] is True
+            assert runtime["reason"] is None
+            assert runtime["architecture"] == "resnet18"
+            assert entries["satquery-rs-visual-v1"]["available"] is True
+        else:
+            # An unavailable rung must say why, so a reviewer can tell a missing checkpoint from a
+            # disabled flag rather than seeing an unexplained blank.
+            assert runtime["reason"]
+            assert entries["satquery-rs-visual-v1"]["available"] is False
 
     def test_default_registry_is_shared(self):
         assert default_registry() is default_registry()
@@ -233,13 +289,26 @@ class TestDispatch:
         )
         assert result.tool_name == "fusion-decision-cv"
 
-    def test_change_vqa_dispatches_to_the_change_tool(self, registry, temporal):
+    def test_change_vqa_dispatches_to_the_change_vqa_tool(self, registry, temporal):
         before, after = temporal
         result = registry.dispatch(
             QueryTask.CHANGE_VQA, ToolContext("what changed between the two dates", [before, after])
         )
-        assert result.task is QueryTask.CHANGE_DETECTION  # the tool's own declared task
-        assert result.tool_name == "change-cva-cv"
+        assert result.task is QueryTask.CHANGE_VQA
+        assert result.tool_name == "change-vqa-cv"
+        # The answer addresses the question and is built from the same measurement, so the change
+        # payload is present in full rather than replaced by a bare sentence.
+        assert result.data["changed_pixels"] >= 0
+        assert result.data["question"]["asked"] == "what changed between the two dates"
+
+    def test_change_vqa_answers_about_the_class_it_was_asked_about(self, registry, temporal):
+        before, after = temporal
+        result = registry.dispatch(
+            QueryTask.CHANGE_VQA,
+            ToolContext("did the vegetation increase between the two dates?", [before, after]),
+        )
+        assert result.data["question"]["interpreted_as"] == "net change in vegetation"
+        assert "vegetation" in result.answer.lower()
 
 
 # ---------------------------------------------------------------------------

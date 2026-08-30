@@ -39,6 +39,7 @@ import {
   formatFractionPct,
   formatInt,
   formatPct,
+  formatSarThresholds,
   formatSignedExtent,
   formatSignedFractionPct,
   formatStepDuration,
@@ -302,7 +303,7 @@ function sarBlocks(d: SarData): ReportBlock[] {
     },
     {
       kind: 'text',
-      text: `Backscatter thresholds (${d.thresholds_db.method}): smooth ≤ ${d.thresholds_db.smooth.toFixed(1)} dB, bright ≥ ${d.thresholds_db.bright.toFixed(1)} dB. SAR reports scattering behaviour, not material identity — surfaces are candidates, not confirmed classes.`,
+      text: `${formatSarThresholds(d.thresholds_db)} SAR reports scattering behaviour, not material identity — surfaces are candidates, not confirmed classes.`,
     },
   ]
 }
@@ -405,7 +406,27 @@ function fusionBlocks(d: FusionData): ReportBlock[] {
 
 function changeBlocks(d: ChangeData): ReportBlock[] {
   const georeferenced = d.changed_area_m2 !== null
-  const blocks: ReportBlock[] = [
+  const blocks: ReportBlock[] = []
+
+  // Change VQA only. Printing the reading alongside the question keeps a misread question visible
+  // in the downloaded report rather than only in an answer that addresses something else.
+  if (d.question) {
+    blocks.push({
+      kind: 'fields',
+      fields: [
+        { label: 'Question asked', value: d.question.asked },
+        { label: 'Read as', value: prettifyKey(d.question.interpreted_as) },
+      ],
+    })
+  }
+
+  blocks.push(
+    {
+      kind: 'text',
+      text:
+        'Measured pixel difference — counted directly from the two dates. This is an ' +
+        'observation and does not depend on what the change means.',
+    },
     {
       kind: 'fields',
       fields: [
@@ -427,28 +448,80 @@ function changeBlocks(d: ChangeData): ReportBlock[] {
         },
       ],
     },
-  ]
+  )
 
-  if (d.dominant_transition) {
-    const t = d.dominant_transition
+  // The registration gate verdict, with both sides of every comparison, so a refusal in the
+  // printed report is demonstrable rather than asserted (brief §5, §9).
+  const gate = d.registration_gate
+  if (gate) {
+    blocks.push({
+      kind: 'fields',
+      fields: [
+        {
+          label: 'Registration gate',
+          value: gate.passed ? 'Passed' : 'Failed',
+          hint: gate.passed ? 'semantic claims permitted' : 'semantic claims withheld',
+        },
+        {
+          label: 'Pixel offset',
+          value: `${(gate.measured.offset_magnitude_px ?? 0).toFixed(2)} px`,
+          hint: `needs ≤ ${(gate.thresholds.max_offset_px ?? 0).toFixed(2)} px`,
+        },
+        {
+          label: 'Structural agreement',
+          value: (gate.measured.ncc ?? 0).toFixed(3),
+          hint: `needs ≥ ${(gate.thresholds.min_ncc ?? 0).toFixed(2)} NCC`,
+        },
+        {
+          label: 'Registration score',
+          value: (gate.measured.score ?? 0).toFixed(3),
+          hint: `needs ≥ ${(gate.thresholds.min_score ?? 0).toFixed(2)}`,
+        },
+      ],
+    })
+    if (gate.reasons.length > 0) {
+      blocks.push({ kind: 'list', items: gate.reasons })
+    }
+  }
+
+  // The model-inferred half. The old block was an unconditional "Dominant change" callout, which
+  // read as an observed conversion even when every transition had been withheld.
+  const semantic = d.semantic
+  const named = semantic?.supported ? semantic.transition : null
+  if (named) {
     blocks.push({
       kind: 'callout',
       tone: 'info',
-      title: 'Dominant change',
-      body: `${prettifyKey(t.from)} → ${prettifyKey(t.to)} (${changeTypeLabel(t.change_type)}) — ${formatPct(t.percentage_of_change)} of the changed area (${formatExtent(t.area_m2, t.pixel_count)}).`,
+      title: 'Model-inferred land-cover conversion',
+      body: `${prettifyKey(named.from)} → ${prettifyKey(named.to)} (${changeTypeLabel(named.change_type)}) — ${formatPct(named.percentage_of_change)} of the changed area (${formatExtent(named.area_m2, named.pixel_count)}). Named because the independent spectral detector corroborates ${formatFractionPct(named.spectral_agreement)} of its pixels, at or above the ${formatFractionPct(semantic.min_spectral_agreement)} required.`,
+    })
+  } else {
+    const dominant = d.dominant_transition
+    const reason =
+      semantic?.withheld_reason ??
+      'The evidence does not support attributing the measured difference to a named land-cover conversion.'
+    const largest = dominant
+      ? ` The largest changed pixel population is ${prettifyKey(dominant.from)} → ${prettifyKey(dominant.to)} — ${formatPct(dominant.percentage_of_change)} of the changed area (${formatExtent(dominant.area_m2, dominant.pixel_count)}), ${formatFractionPct(dominant.spectral_agreement)} spectral agreement. That is a measurement of where the two classifications differ, not an observed conversion.`
+      : ''
+    blocks.push({
+      kind: 'callout',
+      tone: 'warning',
+      title: 'No land-cover conversion is claimed',
+      body: `${reason}${largest}`,
     })
   }
 
   blocks.push({
     kind: 'table',
     table: {
-      caption: 'Transitions (share of changed area)',
+      caption: 'Measured transitions (share of changed area)',
       columns: [
         { key: 'transition', label: 'Transition' },
         { key: 'type', label: 'Type' },
         { key: 'share', label: 'Share', align: 'right' },
         { key: 'area', label: georeferenced ? 'Area' : 'Extent', align: 'right' },
         { key: 'agreement', label: 'Spectral agreement', align: 'right' },
+        { key: 'reportable', label: 'Reportable as conversion' },
       ],
       rows: byDesc(d.transitions, (t) => t.fraction_of_change).map((t) => ({
         transition: `${prettifyKey(t.from)} → ${prettifyKey(t.to)}`,
@@ -456,6 +529,7 @@ function changeBlocks(d: ChangeData): ReportBlock[] {
         share: formatPct(t.percentage_of_change),
         area: formatExtent(t.area_m2, t.pixel_count),
         agreement: formatFractionPct(t.spectral_agreement),
+        reportable: t.semantically_reportable ? 'Yes' : 'Withheld',
       })),
     },
   })
@@ -515,6 +589,28 @@ function changeBlocks(d: ChangeData): ReportBlock[] {
   })
 
   blocks.push(registrationBlock(d.registration))
+  const coreg = d.coregistration
+  if (coreg) {
+    blocks.push({
+      kind: 'fields',
+      fields: [
+        {
+          label: 'Co-registration',
+          value: coreg.applied ? coreg.method : `none applied (${coreg.method})`,
+          hint: `${coreg.candidates.length} method(s) evaluated, best kept`,
+        },
+        {
+          label: 'Applied shift',
+          value: `${coreg.shift_x_px.toFixed(2)}, ${coreg.shift_y_px.toFixed(2)} px`,
+        },
+        {
+          label: 'Score improvement',
+          value: `${coreg.initial.score.toFixed(3)} → ${coreg.final.score.toFixed(3)}`,
+          hint: `${coreg.score_improvement >= 0 ? '+' : ''}${coreg.score_improvement.toFixed(3)}`,
+        },
+      ],
+    })
+  }
   return blocks
 }
 

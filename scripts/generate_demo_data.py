@@ -97,17 +97,30 @@ def base_transform(pixel_m: float = PIXEL_M) -> Affine:
 # Scene layout
 # ---------------------------------------------------------------------------
 def _draw_urban_block(labels: np.ndarray, x0: int, y0: int, x1: int, y1: int,
-                      rng: np.random.Generator) -> None:
-    """Fill a rectangle with a built-up block pattern separated by a road grid."""
+                      rng: np.random.Generator, *, step: int = 26,
+                      road_thickness: int = 3) -> None:
+    """Fill a rectangle with a built-up block pattern separated by a road grid.
+
+    Args:
+        step: Spacing of the road grid in pixels. The default matches the original demo scene.
+        road_thickness: Width of each road in pixels; ``0`` draws a solid block with no roads.
+            Roads are labelled bare soil, so a dense fine grid puts a large bare-soil population
+            *inside* the town — and since those pixels are surrounded by structure their texture
+            reads as built-up, which blurs the very bare/built-up boundary the classifier separates
+            on. A sparse arterial grid keeps the town legible without that confound.
+    """
     cv2.rectangle(labels, (x0, y0), (x1, y1), CLS_BUILT_UP, thickness=-1)
+    if road_thickness <= 0:
+        return
     # Roads read as bare surfaces between buildings.
-    step = 26
     for x in range(x0 + step, x1, step):
         jitter = int(rng.integers(-2, 3))
-        cv2.line(labels, (x + jitter, y0), (x + jitter, y1), CLS_BARE_SOIL, thickness=3)
+        cv2.line(labels, (x + jitter, y0), (x + jitter, y1), CLS_BARE_SOIL,
+                 thickness=road_thickness)
     for y in range(y0 + step, y1, step):
         jitter = int(rng.integers(-2, 3))
-        cv2.line(labels, (x0, y + jitter), (x1, y + jitter), CLS_BARE_SOIL, thickness=3)
+        cv2.line(labels, (x0, y + jitter), (x1, y + jitter), CLS_BARE_SOIL,
+                 thickness=road_thickness)
 
 
 def build_label_map(rng: np.random.Generator, *, epoch: int = 1) -> np.ndarray:
@@ -153,6 +166,90 @@ def build_label_map(rng: np.random.Generator, *, epoch: int = 1) -> np.ndarray:
 
 
 # ---------------------------------------------------------------------------
+# The reliable bi-temporal pair (brief §3 points 2 and 11)
+# ---------------------------------------------------------------------------
+# The default pair above is deliberately *hard*: most of its change is built-up expansion onto
+# bare soil, which the two detectors cannot both see (built-up and bare soil are near-identical
+# in NDVI, a water index and NDBI, so only the classifier's texture cue catches them). That is
+# realistic and worth keeping — but it means the change confidence is honestly capped in the
+# medium band by ``evidence_strength = min(bimodality signal, corroborated fraction)``.
+#
+# A demonstration of the *reliable* end of the scale needs a pair where the evidence genuinely is
+# strong, not one where the thresholds were loosened until it looked strong. The change here is
+# reservoir impoundment: a valley floor of cropland and bare soil goes under water. That choice is
+# not arbitrary — it is the one conversion both detectors independently resolve, because water's
+# signature is extreme in every index (NDVI collapses from about +0.84 to −0.43, MNDWI rises from
+# about −0.54 to +0.78), so the spectral detector and the land-cover classifier flag the same
+# pixels. Everything outside the reservoir keeps the same land cover and the same illumination, so
+# the unchanged population stays a tight mode near zero and the magnitude histogram is genuinely
+# two-population. Both dates are written as georeferenced 6-band GeoTIFFs on the identical grid,
+# so registration measures at sub-pixel offset without any correction being needed.
+RELIABLE_SEED = SEED + 500
+
+
+def build_reliable_labels(rng: np.random.Generator, *, epoch: int = 1) -> np.ndarray:
+    """Class map for the reliable pair: a valley that is flooded by epoch 2.
+
+    Both epochs must be built from a generator in the *same* state, so the shared layout — in
+    particular the jittered road grid inside the towns — is pixel-identical between the dates.
+    Anything else would put a genuine structural mismatch in ground that did not change, which
+    depresses the measured registration NCC and manufactures class disagreement along every road.
+
+    Args:
+        rng: Seeded generator, used for the town road jitter.
+        epoch: ``1`` before impoundment, ``2`` after.
+    """
+    # The valley floor is irrigated cropland, and that is the *default* surface here rather than
+    # bare ground. The reason is the built-up classifier: built-up and bare soil are separated on
+    # NDBI plus edge density, and their distributions genuinely overlap (both surfaces are
+    # SWIR-bright, and ploughed ground is not perfectly smooth). Every bare-soil pixel is therefore
+    # a coin-toss near that decision boundary, and with bare ground covering a third of the frame
+    # sensor noise alone flipped ~16,000 pixels between the two dates — uncorroborated class
+    # disagreement that has nothing to do with the change being demonstrated. Keeping bare ground to
+    # a few real features (the dry wash, the quarry, the roads) shrinks that boundary population to
+    # something a denoising pass can absorb.
+    labels = np.full((SIZE, SIZE), CLS_VEGETATION, dtype=np.uint8)
+
+    # Bare ground: a dry wash draining the valley, and a quarry on the eastern ridge.
+    cv2.rectangle(labels, (196, 200), (228, 500), CLS_BARE_SOIL, thickness=-1)
+    cv2.rectangle(labels, (430, 40), (500, 120), CLS_BARE_SOIL, thickness=-1)
+
+    # The natural lake on the valley floor, present on BOTH dates and deliberately large.
+    #
+    # Its size is not cosmetic. The built-up classifier's texture cue, `features.edge_density`, is
+    # percentile-stretched over the whole frame, so the *smoothest* large surface in the image sets
+    # the low end of that stretch. With only a token pond, the earlier date's smoothest population
+    # was cropland, bare ground stretched up to ~0.66, and bare soil and built-up ceased to be two
+    # distinguishable modes — the classifier fell back to reference thresholds on that date while
+    # the later date (whose reservoir anchors the stretch) used Otsu. Two different thresholds over
+    # unchanged ground is what manufactured ~25,000 bare-to-built-up flips that no spectral
+    # measurement corroborated. A lake on both dates anchors the stretch identically on both.
+    cv2.ellipse(labels, (150, 300), (95, 55), 8.0, 0.0, 360.0, CLS_WATER, -1)
+    cv2.circle(labels, (400, 290), 22, CLS_WATER, thickness=-1)
+
+    # Two towns, unchanged, and deliberately large. Built-up is separated by requiring both a
+    # SWIR-bright index *and* high edge density, with both thresholds derived from the
+    # not-water/not-vegetation remainder — so what matters is built-up's share of *that* subset,
+    # not of the scene. A token settlement leaves the remainder unimodal, the classifier falls
+    # back to reference thresholds, and the two dates then disagree over large tracts of bare soil:
+    # uncorroborated class disagreement with nothing to do with the change being demonstrated.
+    # These two districts put built-up well above bare ground in that subset. Only sparse arterial
+    # roads are drawn: the built-up surface's own texture supplies the edge density, so a dense grid
+    # would only add bare-soil pixels that sit on the boundary it has to separate.
+    _draw_urban_block(labels, 10, 10, 250, 190, rng, step=52, road_thickness=2)
+    _draw_urban_block(labels, 280, 300, 500, 480, rng, step=52, road_thickness=2)
+
+    if epoch == 2:
+        # Impoundment: the dam raises the lake, and the enlarged reservoir drowns the cropland and
+        # bare terraces around its old shoreline. The change is an *extension* of the water body
+        # already present on date 1, so "water increased" is a measured delta against a real
+        # baseline rather than a class appearing out of nothing.
+        cv2.ellipse(labels, (150, 300), (120, 72), 8.0, 0.0, 360.0, CLS_WATER, -1)
+
+    return labels
+
+
+# ---------------------------------------------------------------------------
 # Rendering
 # ---------------------------------------------------------------------------
 def render_optical(labels: np.ndarray, rng: np.random.Generator) -> np.ndarray:
@@ -181,6 +278,72 @@ def render_optical(labels: np.ndarray, rng: np.random.Generator) -> np.ndarray:
     # Sensor blur, so class edges are not unrealistically crisp.
     for b in range(out.shape[0]):
         out[b] = cv2.GaussianBlur(out[b], (3, 3), 0.7)
+
+    np.clip(out, 0.0, 1.2, out=out)
+    return (out * REFLECTANCE_SCALE).astype(np.uint16)
+
+
+def render_optical_correlated(
+    labels: np.ndarray,
+    *,
+    ground_seed: int,
+    sensor_seed: int,
+    sensor_sigma: float = 0.0015,
+) -> np.ndarray:
+    """Render a 6-band optical scene, separating *ground* texture from *sensor* noise.
+
+    :func:`render_optical` draws its within-class texture from the caller's generator, so two
+    epochs rendered with different generators disagree pixel-by-pixel even where the ground did
+    not change. That is not how a real bi-temporal pair behaves: within-class heterogeneity —
+    which roof, which furrow, which patch of gravel — is a property of the *ground*, so it repeats
+    almost exactly on the second pass. Only sensor noise is independent between acquisitions.
+
+    Modelling it that way is what lets an unchanged pair legitimately measure a high registration
+    NCC and a tight near-zero change magnitude: the two dates agree because the scene is the same
+    scene, not because any threshold was relaxed. The texture field is drawn once over the whole
+    frame from ``ground_seed`` and modulated by the per-class amplitude, so a pixel whose class is
+    unchanged receives an identical perturbation on both dates, while a pixel that converted
+    (cropland to reservoir) picks up the new class's reflectance and amplitude.
+
+    Args:
+        ground_seed: Seeds the shared ground-texture field. Pass the *same* value for both epochs.
+        sensor_seed: Seeds the independent per-acquisition noise. Pass a *different* value per date.
+        sensor_sigma: Noise-equivalent reflectance of the independent term, in reflectance units.
+
+    Returns:
+        ``(6, H, W)`` uint16 array, reflectance scaled by 10000.
+    """
+    h, w = labels.shape
+    bands = len(BAND_NAMES)
+    ground = np.random.default_rng(ground_seed)
+    # One unit-variance field per band, drawn independently of the class map so it does not shift
+    # when the reservoir changes how many pixels each class owns.
+    field = ground.normal(0.0, 1.0, size=(bands, h, w)).astype(np.float32)
+
+    base = np.zeros((bands, h, w), dtype=np.float32)
+    amplitude = np.zeros((h, w), dtype=np.float32)
+    for cls, refl in REFLECTANCE.items():
+        mask = labels == cls
+        if not mask.any():
+            continue
+        amplitude[mask] = TEXTURE[cls]
+        for b, value in enumerate(refl):
+            base[b][mask] = value
+
+    # Multiplicative in reflectance, matching render_optical's sigma * value convention.
+    out = base * (1.0 + field * amplitude[None, :, :])
+
+    # Illumination gradient: scene geometry, so shared between the two dates.
+    gy, gx = np.mgrid[0:h, 0:w].astype(np.float32)
+    gradient = 1.0 + 0.04 * ((gx / w) - 0.5) + 0.03 * ((gy / h) - 0.5)
+    out *= gradient[None, :, :]
+
+    for b in range(bands):
+        out[b] = cv2.GaussianBlur(out[b], (3, 3), 0.7)
+
+    # The only term that differs between the acquisitions.
+    sensor = np.random.default_rng(sensor_seed)
+    out += sensor.normal(0.0, sensor_sigma, size=out.shape).astype(np.float32)
 
     np.clip(out, 0.0, 1.2, out=out)
     return (out * REFLECTANCE_SCALE).astype(np.uint16)
@@ -316,6 +479,76 @@ def write_edge_cases(root: Path) -> list[str]:
     return created
 
 
+def _rotate_and_shift(
+    array: np.ndarray, *, degrees: float, dx: float, dy: float
+) -> np.ndarray:
+    """Apply a rotation about the centre plus a translation, band by band.
+
+    A *rotation* is used on purpose. The co-registration stage
+    (:func:`app.geospatial.align.coregister`) estimates and removes a pure translation, so a
+    merely shifted pair would be corrected and would stop being an unreliable case. Uncorrected
+    rotation is what actually survives translation-only co-registration — and it is a real failure
+    mode, produced by an ungeoreferenced export whose orientation was never resolved.
+    """
+    single = array.ndim == 2
+    stack = array[None, :, :] if single else array
+    h, w = stack.shape[1:]
+    matrix = cv2.getRotationMatrix2D((w / 2.0, h / 2.0), degrees, 1.0)
+    matrix[0, 2] += dx
+    matrix[1, 2] += dy
+    out = np.stack(
+        [
+            cv2.warpAffine(
+                band.astype(np.float32), matrix, (w, h),
+                flags=cv2.INTER_LINEAR, borderMode=cv2.BORDER_REFLECT,
+            )
+            for band in stack
+        ]
+    ).astype(array.dtype)
+    return out[0] if single else out
+
+
+def write_unreliable_pair(root: Path) -> list[str]:
+    """Create the *unreliable* bi-temporal pair the safety tests need (brief §3 point 12).
+
+    This reproduces, deliberately and reproducibly, the input configuration that was reported as
+    a bad flagship demo: no CRS, no transform, no NIR band, and a geometric mismatch a
+    translation-only co-registration cannot remove. Every one of those is a genuine defect in the
+    *input*, not a tightened threshold — the pipeline must go on measuring the pixel difference
+    while declining to name a land-cover conversion, and must say why.
+
+    Returns:
+        The file names created, for the manifest.
+    """
+    root.mkdir(parents=True, exist_ok=True)
+    labels_t1 = build_reliable_labels(np.random.default_rng(RELIABLE_SEED), epoch=1)
+    labels_t2 = build_reliable_labels(np.random.default_rng(RELIABLE_SEED), epoch=2)
+    optical_t1 = render_optical_correlated(
+        labels_t1, ground_seed=RELIABLE_SEED + 10, sensor_seed=RELIABLE_SEED + 77
+    )
+    optical_t2 = render_optical_correlated(
+        labels_t2, ground_seed=RELIABLE_SEED + 10, sensor_seed=RELIABLE_SEED + 79
+    )
+
+    # The later date is rotated 4 degrees and shifted ~60 px: the same ground, unresolvably
+    # mismatched under a translation model.
+    skewed_t2 = _rotate_and_shift(optical_t2, degrees=4.0, dx=48.0, dy=-36.0)
+
+    created: list[str] = []
+    # Georeference absent entirely (identity transform, no CRS) — a plain image, not a map.
+    for name, array in (("pair_t1.tif", optical_t1), ("pair_t2.tif", skewed_t2)):
+        write_raster(root / name, array, transform=Affine.identity(), epsg=None,
+                     descriptions=BAND_NAMES)
+        created.append(name)
+
+    # And as ordinary 8-bit RGB PNGs: no georeference, no NIR, so no vegetation or water index can
+    # be computed from either date and change falls back to raw-band differencing.
+    write_quicklook_png(root / "pair_t1.png", optical_t1)
+    write_quicklook_png(root / "pair_t2.png", skewed_t2)
+    created.extend(["pair_t1.png", "pair_t2.png"])
+    return created
+
+
 def class_pixel_counts(labels: np.ndarray) -> dict[str, int]:
     return {
         CLASS_NAMES[c]: int((labels == c).sum())
@@ -378,9 +611,49 @@ def main(argv: list[str] | None = None) -> int:
     write_raster(tmp_dir / "change_gt.tif", change_gt, transform=transform,
                  epsg=UTM_EPSG, descriptions=("changed",))
 
+    # --- the reliable pair: georeferenced, aligned, one unambiguous conversion ---
+    rel_dir = out / "temporal_reliable"
+    # Same generator state for both label maps: the unchanged layout must be pixel-identical.
+    rel_labels_t1 = build_reliable_labels(np.random.default_rng(RELIABLE_SEED), epoch=1)
+    rel_labels_t2 = build_reliable_labels(np.random.default_rng(RELIABLE_SEED), epoch=2)
+    # Ground texture is shared (it is the same ground); only sensor noise differs per date.
+    rel_optical_t1 = render_optical_correlated(
+        rel_labels_t1, ground_seed=RELIABLE_SEED + 10, sensor_seed=RELIABLE_SEED + 1
+    )
+    rel_optical_t2 = render_optical_correlated(
+        rel_labels_t2, ground_seed=RELIABLE_SEED + 10, sensor_seed=RELIABLE_SEED + 2
+    )
+    rel_tags_t1 = {"ACQUISITION_DATE": "2024-03-08", "SENSOR": "synthetic-optical-6band"}
+    rel_tags_t2 = {"ACQUISITION_DATE": "2025-03-11", "SENSOR": "synthetic-optical-6band"}
+    write_raster(rel_dir / "reservoir_t1_optical.tif", rel_optical_t1, transform=transform,
+                 epsg=UTM_EPSG, descriptions=BAND_NAMES, tags=rel_tags_t1)
+    write_raster(rel_dir / "reservoir_t2_optical.tif", rel_optical_t2, transform=transform,
+                 epsg=UTM_EPSG, descriptions=BAND_NAMES, tags=rel_tags_t2)
+    write_raster(rel_dir / "reservoir_t1_landcover_gt.tif", rel_labels_t1, transform=transform,
+                 epsg=UTM_EPSG, descriptions=("landcover_class",))
+    write_raster(rel_dir / "reservoir_t2_landcover_gt.tif", rel_labels_t2, transform=transform,
+                 epsg=UTM_EPSG, descriptions=("landcover_class",))
+    rel_change_gt = (rel_labels_t1 != rel_labels_t2).astype(np.uint8)
+    write_raster(rel_dir / "reservoir_change_gt.tif", rel_change_gt, transform=transform,
+                 epsg=UTM_EPSG, descriptions=("changed",))
+
+    unreliable = write_unreliable_pair(out / "temporal_unreliable")
     edge_cases = write_edge_cases(out / "edge_cases")
 
     pixel_area = PIXEL_M * PIXEL_M
+
+    def _transition_counts(a: np.ndarray, b: np.ndarray) -> dict[str, int]:
+        """Exact pixel count per ``from -> to`` conversion, for scoring semantic claims."""
+        counts: dict[str, int] = {}
+        for src in sorted(CLASS_NAMES):
+            for dst in sorted(CLASS_NAMES):
+                if src == dst:
+                    continue
+                n = int(((a == src) & (b == dst)).sum())
+                if n:
+                    counts[f"{CLASS_NAMES[src]}->{CLASS_NAMES[dst]}"] = n
+        return counts
+
     manifest = {
         "generator": "scripts/generate_demo_data.py",
         "seed": SEED,
@@ -416,6 +689,58 @@ def main(argv: list[str] | None = None) -> int:
             "reservoir shrinkage (water -> bare soil)",
             "newly irrigated cropland in the south (bare soil -> vegetation)",
         ],
+        # Which input a bi-temporal demonstration should use, and why. Proper GeoTIFFs on a common
+        # grid are the preferred input: without a CRS and transform there is no ground area, no
+        # reprojection, and no way to tell a real conversion from a misalignment.
+        "preferred_bitemporal_input": {
+            "path": "temporal_reliable/reservoir_t1_optical.tif"
+                    " + temporal_reliable/reservoir_t2_optical.tif",
+            "why": (
+                "Both dates are 6-band GeoTIFFs with an explicit CRS, transform and bounds on one "
+                "identical grid, so registration is sub-pixel, ground areas are real, and the one "
+                "conversion present is corroborated independently by both change detectors."
+            ),
+            "avoid": (
+                "PNG or otherwise ungeoreferenced input. It carries no CRS, transform or NIR band, "
+                "so no vegetation or water index exists, change falls back to raw-band "
+                "differencing, extent can only be reported in pixels, and no land-cover conversion "
+                "can be attributed to the ground. See temporal_unreliable/ for that case."
+            ),
+        },
+        "reliable_pair": {
+            "note": (
+                "The high-quality bi-temporal case: georeferenced, co-registered, with one "
+                "spectrally unambiguous conversion (cropland and bare soil to water) that both "
+                "the spectral and land-cover detectors resolve independently."
+            ),
+            "before": "temporal_reliable/reservoir_t1_optical.tif",
+            "after": "temporal_reliable/reservoir_t2_optical.tif",
+            "change_mask": "temporal_reliable/reservoir_change_gt.tif",
+            "known_change": "reservoir impoundment floods the valley floor",
+            "t1_class_pixels": class_pixel_counts(rel_labels_t1),
+            "t2_class_pixels": class_pixel_counts(rel_labels_t2),
+            "changed_pixels": int(rel_change_gt.sum()),
+            "changed_area_m2": float(rel_change_gt.sum() * pixel_area),
+            "changed_fraction": float(rel_change_gt.mean()),
+            "transition_pixels": _transition_counts(rel_labels_t1, rel_labels_t2),
+        },
+        "unreliable_pair": {
+            "note": (
+                "The safety case: the same ground, but the later date is rotated 4 degrees and "
+                "shifted about 60 px, and neither file carries a CRS or transform. The rotation is "
+                "deliberate — translation-only co-registration cannot remove it — so the "
+                "registration gate must fail and the pipeline must report the measured pixel "
+                "difference while withholding any named land-cover conversion."
+            ),
+            "geotiff_pair": ["temporal_unreliable/pair_t1.tif", "temporal_unreliable/pair_t2.tif"],
+            "png_pair": ["temporal_unreliable/pair_t1.png", "temporal_unreliable/pair_t2.png"],
+            "defects": [
+                "no CRS and identity transform (not a map)",
+                "later date rotated 4 degrees about the centre and shifted (48, -36) px",
+                "PNG variant is 8-bit RGB only, so NDVI/NDWI/NDBI cannot be computed",
+            ],
+            "files": unreliable,
+        },
         "edge_cases": edge_cases,
     }
     (out / "manifest.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")

@@ -241,10 +241,21 @@ class TestBitemporalPair:
         return [t1["image_id"], t2["image_id"]]
 
     def test_change_runs(self, client, pair):
+        # "What changed…?" is a *question* about change, so it routes to change VQA rather than to
+        # the change *report*. Both rest on the same measurement; they differ in what the answer
+        # addresses, which is the separation the change-VQA tool exists to make.
         response = _analyze(client, "What changed between the two dates?", pair)
         assert response.status_code == 200, response.text
         body = response.json()
         assert body["mode"] == "bitemporal_pair"
+        assert body["task"] == "change_vqa"
+        assert body["tool"] == "change-vqa-cv"
+
+    def test_show_me_the_change_runs_the_change_report(self, client, pair):
+        """An imperative mood asks for the report, not an answer to a question."""
+        body = _analyze(client, "Show me the change between the two dates.", pair).json()
+        assert body["mode"] == "bitemporal_pair"
+        assert body["task"] == "change_detection"
         assert body["tool"] == "change-cva-cv"
 
     def test_measured_change_is_reported(self, client, pair):

@@ -22,9 +22,18 @@ for (const [path, loader] of Object.entries(loaders)) {
   loaderById.set(idFromPath(path), loader)
 }
 
-/** Catalog rows, newest first — what a real listing endpoint would return. */
+/**
+ * Catalog rows, newest first — what a real listing endpoint would return.
+ *
+ * Each row is stamped `fixture: true`, the same marker `loadFixture` puts on a full result. The
+ * dashboard merges these rows with live history, and both sides draw ids from the same
+ * `SAT-2026-NNNNNN` sequence, so the row has to carry where it came from for its link to resolve
+ * back to the analysis actually listed.
+ */
 export function listFixtureSummaries(): AnalysisSummary[] {
-  return [...summaries].sort((a, b) => b.created_at.localeCompare(a.created_at))
+  return [...summaries]
+    .sort((a, b) => b.created_at.localeCompare(a.created_at))
+    .map((row) => ({ ...row, fixture: true }))
 }
 
 export function hasFixture(id: string): boolean {

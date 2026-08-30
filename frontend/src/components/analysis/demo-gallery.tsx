@@ -47,7 +47,9 @@ export function DemoGallery({ mode, onUseExample }: DemoGalleryProps) {
                 </Button>
               )}
               <Button asChild variant="outline" size="sm">
-                <Link to={`/analysis/${demo.demoCaseId}`}>
+                {/* `?demo=1` — this card advertises one recorded case, so it asks for the recording
+                    by name rather than for whatever the live backend holds under that id. */}
+                <Link to={`/analysis/${demo.demoCaseId}?demo=1`}>
                   View result
                   <ArrowRight />
                 </Link>

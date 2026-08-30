@@ -1,5 +1,5 @@
 import { useCallback, useMemo, useState } from 'react'
-import { Link, useParams } from 'react-router-dom'
+import { Link, useParams, useSearchParams } from 'react-router-dom'
 import { ArrowLeft, Printer, Download, AlertCircle, Loader2 } from 'lucide-react'
 import type { Artifact } from '@/types/api'
 import { getAnalysis } from '@/services/api'
@@ -46,7 +46,13 @@ async function embedArtifacts(artifacts: Artifact[]): Promise<Map<string, string
 
 export function ReportPage() {
   const { id } = useParams<{ id: string }>()
-  const { data: result, error, loading } = useAsync(() => getAnalysis(id ?? ''), [id])
+  // Same marker the result page uses: report the recording when the recording is what was opened.
+  const [search] = useSearchParams()
+  const recorded = search.get('demo') === '1'
+  const { data: result, error, loading } = useAsync(
+    () => getAnalysis(id ?? '', { recorded }),
+    [id, recorded],
+  )
   // Stamp the report once, so the on-screen document and the downloaded file agree.
   const [generatedAt] = useState(() => new Date().toISOString())
   const [downloading, setDownloading] = useState(false)
@@ -82,7 +88,7 @@ export function ReportPage() {
       <div className="sticky top-0 z-10 border-b border-slate-200 bg-white/90 backdrop-blur print:hidden">
         <div className="mx-auto flex max-w-[820px] flex-wrap items-center justify-between gap-3 px-4 py-3">
           <Button variant="ghost" size="sm" asChild>
-            <Link to={`/analysis/${id}`}>
+            <Link to={`/analysis/${id}${recorded ? '?demo=1' : ''}`}>
               <ArrowLeft />
               Back to result
             </Link>

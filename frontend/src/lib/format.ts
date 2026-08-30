@@ -138,6 +138,36 @@ export function formatSignedFractionPct(fraction: number | null | undefined, dig
   return fraction > 0 ? `+${pct}%` : `${pct}%`
 }
 
+/**
+ * The dB thresholds a SAR run actually resolved, as one sentence.
+ *
+ * Otsu returns a cut only for a population it can separate. A scene with no distinct
+ * bright-scattering mode therefore reports `bright: null` — the backend says as much in its own
+ * warnings ("No distinct bright-scattering population was found…") — and a scene with no smooth mode
+ * reports `smooth: null`; when neither separates, `method` is `refused`. Both values used to be read
+ * as plain numbers, so a single-SAR run over such a scene killed the whole result route in
+ * `toFixed` ("Unexpected Application Error!") even though every other measurement in it was sound.
+ * A threshold that was not resolved is now reported as not resolved, next to the reason.
+ */
+export function formatSarThresholds(t: {
+  smooth: number | null | undefined
+  bright: number | null | undefined
+  method: string
+}): string {
+  const resolved = (v: number | null | undefined): v is number =>
+    typeof v === 'number' && Number.isFinite(v)
+  const head = `Backscatter thresholds (${t.method}):`
+  const cuts: string[] = []
+  if (resolved(t.smooth)) cuts.push(`smooth ≤ ${t.smooth.toFixed(1)} dB`)
+  if (resolved(t.bright)) cuts.push(`bright ≥ ${t.bright.toFixed(1)} dB`)
+  if (cuts.length === 2) return `${head} ${cuts.join(', ')}.`
+  if (cuts.length === 0) {
+    return `${head} none — no scattering population separated from this image, so no dB threshold is reported.`
+  }
+  const missing = resolved(t.smooth) ? 'bright' : 'smooth'
+  return `${head} ${cuts[0]}. No distinct ${missing}-scattering population was separated, so no ${missing} threshold is reported.`
+}
+
 export function formatDateTime(iso: string): string {
   const d = new Date(iso)
   if (Number.isNaN(d.getTime())) return iso

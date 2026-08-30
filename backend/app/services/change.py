@@ -90,9 +90,11 @@ from ..core.logging import get_logger
 from ..core.types import BandRole, ChangeType, LandCoverClass
 from ..geospatial.align import (
     REGISTRATION_WARN_PX,
+    RegistrationGate,
     RegistrationQuality,
     measure_registration,
     normalize_radiometry,
+    registration_gate,
 )
 from ..geospatial.measure import pixel_area_m2, pixels_for_ground_area
 from ..geospatial.raster import RasterData, band_mean
@@ -136,6 +138,16 @@ _DIRECTION_DOMINANCE = 0.60
 # truth where spectrally-corroborated pixels scored 0.987, so once a quarter of the reported
 # change is uncorroborated the headline figure is materially softer than it looks.
 _UNCORROBORATED_WARN_FRACTION = 0.25
+
+# Spectral corroboration a named land-cover transition must reach before it is *asserted* as a
+# semantic finding rather than merely listed as a measurement. The number is read straight off the
+# precision measured on the demo pair and recorded on :attr:`Transition.spectral_agreement`:
+# transitions above 0.9 agreement scored 0.91-1.00 precision against ground truth, while
+# ``built_up -> bare_soil`` at 0.002 agreement scored 0.162. 0.60 sits in the empty middle of that
+# distribution — comfortably above everything that measured badly and below everything that
+# measured well — so it separates the two observed populations rather than being chosen to admit
+# any particular result.
+SEMANTIC_MIN_SPECTRAL_AGREEMENT = 0.60
 
 
 @dataclass
@@ -317,9 +329,80 @@ class ChangeResult:
         return self.corroborated_pixels / self.changed_pixels if self.changed_pixels else 0.0
 
     def dominant_transition(self) -> Transition | None:
-        """The largest transition that is an actual class conversion."""
+        """The largest transition that is an actual class conversion.
+
+        This is a *measurement*: the biggest class conversion the two classifications disagree on.
+        It carries no claim that the conversion is real — use :meth:`semantic_transition` for that.
+        """
         real = [t for t in self.transitions if t.change_type is not ChangeType.SPECTRAL_ONLY]
         return max(real, key=lambda t: t.pixel_count) if real else None
+
+    # -- the measured / inferred boundary (§3 points 3, 5, 8, 9) -----------------------------
+    @property
+    def gate(self) -> RegistrationGate:
+        """Whether co-registration is good enough to support per-pixel semantic claims.
+
+        Derived rather than stored so it can never disagree with the registration it is about.
+        """
+        return registration_gate(self.registration)
+
+    def transition_is_reportable(self, transition: Transition) -> bool:
+        """Whether a transition may be *asserted*, as opposed to listed as a measurement.
+
+        Two independent conditions, because they fail for different reasons and either one alone
+        is enough to manufacture a transition that is not on the ground:
+
+        * The pair must be registered well enough (:attr:`gate`). A residual offset converts one
+          side of every land-cover boundary into the class on the other side, so at 82 px every
+          boundary in the scene produces a confident-looking transition.
+        * The spectral detector must independently corroborate this specific transition at
+          :data:`SEMANTIC_MIN_SPECTRAL_AGREEMENT`. Two classifications can disagree because the
+          surface changed, or because the two classes are hard to separate spectrally and the
+          classifier landed differently on each date; only corroboration distinguishes them.
+        """
+        return (
+            self.gate.passed
+            and transition.spectral_agreement >= SEMANTIC_MIN_SPECTRAL_AGREEMENT
+        )
+
+    def semantic_transition(self) -> Transition | None:
+        """The dominant transition, but only when it may honestly be asserted.
+
+        ``None`` means "the measurement exists, the claim is withheld" — not "nothing changed".
+        :meth:`semantic_withheld_reason` says which.
+        """
+        dominant = self.dominant_transition()
+        if dominant is None:
+            return None
+        return dominant if self.transition_is_reportable(dominant) else None
+
+    @property
+    def semantic_supported(self) -> bool:
+        """Whether any named land-cover transition may be asserted from this result."""
+        return self.semantic_transition() is not None
+
+    @property
+    def semantic_withheld_reason(self) -> str | None:
+        """Why the semantic claim is being withheld, or ``None`` when it is not withheld."""
+        dominant = self.dominant_transition()
+        if dominant is None:
+            return None
+        if self.semantic_supported:
+            return None
+        if not self.gate.passed:
+            return (
+                "The two images are not co-registered well enough to attribute a land-cover "
+                "conversion to the ground rather than to the misalignment. "
+                + " ".join(self.gate.reasons)
+            )
+        return (
+            f"The largest measured transition ({dominant.before.value.replace('_', ' ')} to "
+            f"{dominant.after.value.replace('_', ' ')}) is corroborated by the spectral "
+            f"measurement on only {dominant.spectral_agreement * 100:.0f}% of its pixels, below "
+            f"the {SEMANTIC_MIN_SPECTRAL_AGREEMENT * 100:.0f}% needed to attribute it to a real "
+            f"surface conversion rather than to the two classifications landing differently on "
+            f"spectrally similar classes."
+        )
 
     def transitions_of_type(self, change_type: ChangeType) -> list[Transition]:
         return [t for t in self.transitions if t.change_type is change_type]
@@ -337,6 +420,14 @@ class ChangeResult:
 
     def to_dict(self) -> dict[str, Any]:
         dominant = self.dominant_transition()
+        semantic = self.semantic_transition()
+        gate = self.gate
+
+        def transition_dict(t: Transition) -> dict[str, Any]:
+            # Every transition carries whether it may be asserted, so the renderer never has to
+            # re-derive the rule and the two views cannot drift apart.
+            return {**t.to_dict(), "semantically_reportable": self.transition_is_reportable(t)}
+
         return {
             "method": self.method,
             "detectors": list(self.detectors),
@@ -358,11 +449,21 @@ class ChangeResult:
                 "class_only_pixels": self.class_only_pixels,
                 "corroborated_fraction": round(self.corroborated_fraction, 4),
             },
-            "dominant_transition": dominant.to_dict() if dominant is not None else None,
-            "transitions": [t.to_dict() for t in self.transitions],
+            "dominant_transition": transition_dict(dominant) if dominant is not None else None,
+            "transitions": [transition_dict(t) for t in self.transitions],
             "class_deltas": [d.to_dict() for d in self.class_deltas],
             "index_deltas": [d.to_dict() for d in self.index_deltas],
             "registration": self.registration.to_dict(),
+            "registration_gate": gate.to_dict(),
+            # The two halves of the answer, kept apart in the payload so the UI cannot present an
+            # inference as a measurement by accident: `measured` is what the pixels say, `semantic`
+            # is what may be concluded from it, with the reason when nothing may be.
+            "semantic": {
+                "supported": self.semantic_supported,
+                "min_spectral_agreement": SEMANTIC_MIN_SPECTRAL_AGREEMENT,
+                "transition": transition_dict(semantic) if semantic is not None else None,
+                "withheld_reason": self.semantic_withheld_reason,
+            },
             "warnings": list(self.warnings),
         }
 
@@ -566,13 +667,24 @@ def _index_deltas(
     return out
 
 
-def detect_change(before: RasterData, after: RasterData) -> ChangeResult:
+def detect_change(
+    before: RasterData,
+    after: RasterData,
+    *,
+    registration: RegistrationQuality | None = None,
+) -> ChangeResult:
     """Analyse change between two co-registered dates of the same area.
 
     Args:
         before: The earlier acquisition.
         after: The later acquisition, already on ``before``'s grid (see
             :func:`app.geospatial.align.align_to_reference`).
+        registration: An already-measured registration for this exact pair, when the caller has
+            corrected the alignment itself (:func:`app.geospatial.align.coregister` measures the
+            corrected pair as part of accepting the correction). Passing it in is not an
+            optimisation — re-measuring here would produce the same numbers, but it would report
+            them as if no correction had happened, losing the before/after record of what the
+            co-registration achieved. Omit it and this measures the pair as given.
 
     Returns:
         A :class:`ChangeResult` whose ``changed_area_m2`` and per-transition areas are
@@ -603,7 +715,8 @@ def detect_change(before: RasterData, after: RasterData) -> ChangeResult:
             code=ErrorCode.NO_SPATIAL_OVERLAP,
         )
 
-    registration = measure_registration(before, after)
+    if registration is None:
+        registration = measure_registration(before, after)
     warnings.extend(registration.warnings)
     if registration.offset_magnitude > REGISTRATION_WARN_PX:
         warnings.append(
@@ -611,6 +724,13 @@ def detect_change(before: RasterData, after: RasterData) -> ChangeResult:
             f"{registration.offset_magnitude:.1f} pixels. Boundaries between land-cover "
             f"types will register as change even where the ground did not change, so the "
             f"reported change area is likely an over-estimate."
+        )
+    gate = registration_gate(registration)
+    if not gate.passed:
+        warnings.append(
+            "Co-registration is not good enough to attribute a named land-cover conversion to "
+            "the ground, so measured pixel difference is reported but no semantic transition is "
+            "claimed. " + " ".join(gate.reasons)
         )
 
     # Indices are ratios and therefore already invariant to per-band gain, so they are

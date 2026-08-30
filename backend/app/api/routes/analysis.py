@@ -48,6 +48,7 @@ from ...db import (
     list_analysis_records,
     save_analysis_record,
 )
+from ...geospatial import artifacts as artifact_renderer
 from ...geospatial.raster import RasterData, load_raster
 from ...schemas import (
     TASK_OVERRIDE_AUTO,
@@ -73,6 +74,30 @@ registry = default_registry()
 # request found a different file depending on where uvicorn was started from.
 _REPO_ROOT = Path(__file__).resolve().parents[4]
 _EVALUATION_REPORT = _REPO_ROOT / "reports" / "benchmark_evaluation_report.json"
+
+#: Where rendered analysis imagery is written, and the URL prefix the ``/storage`` mount serves it
+#: at. Both are derived from one setting so the file the backend writes and the URL the frontend
+#: fetches cannot drift apart.
+_ARTIFACT_DIRNAME = "artifacts"
+
+
+def _render_artifacts(
+    analysis_id: str, result: ToolResult, rasters: list[RasterData]
+) -> tuple[list[dict[str, Any]], list[str]]:
+    """Render this run's base composite and task overlay, and describe them for the response.
+
+    The PNGs go under ``storage_root/artifacts/<analysis_id>/`` and are served by the existing
+    ``/storage`` mount. Until this existed, no tool emitted any imagery: the result page's Imagery
+    panel showed "No rendered imagery for this analysis." for every live run, while recorded demo
+    cases rendered fully — the renderer lived in the fixture-generation script alone.
+    """
+    return artifact_renderer.render_artifacts(
+        result.raw,
+        rasters,
+        out_dir=settings.storage_root / _ARTIFACT_DIRNAME / analysis_id,
+        url_prefix=f"/storage/{_ARTIFACT_DIRNAME}/{analysis_id}",
+    )
+
 
 
 def _recorded_modality(raw: str | None, img_id: str) -> Modality:
@@ -358,6 +383,12 @@ def _run_agentic_workflow(
         )
     )
 
+    # Rendered from the arrays this run produced, before the terminal status is settled: a render
+    # failure adds a warning, and a warning is part of what makes a run PARTIAL.
+    rendered_artifacts, render_warnings = _render_artifacts(analysis_id, result, rasters)
+    warnings.extend(render_warnings)
+    render_ms = timer.mark("render")
+
     confidence = result.confidence
     structured_evidence = _evidence_items(result)
     steps.append(
@@ -381,6 +412,7 @@ def _run_agentic_workflow(
 
     status = _terminal_status(confidence.level, warnings)
     total_ms = timer.total_ms
+    input_metas = [artifact_renderer.input_meta(r) for r in rasters]
 
     input_summary = {
         "image_ids": image_ids,
@@ -394,6 +426,7 @@ def _run_agentic_workflow(
             "ingest": load_ms,
             "route": route_ms,
             "execute": execute_ms,
+            "render": render_ms,
         },
         "total_duration_ms": total_ms,
     }
@@ -414,6 +447,8 @@ def _run_agentic_workflow(
         warnings=warnings,
         reasoning_summary=decision.reason + (f" {override_note}" if override_note else ""),
         total_duration_ms=total_ms,
+        artifacts=rendered_artifacts,
+        inputs=input_metas,
     )
 
     created_at = datetime.now(UTC).isoformat()
@@ -458,6 +493,8 @@ def _run_agentic_workflow(
         "execution_trace": trace_obj.model_dump(mode="json"),
         "data": result.data,
         "warnings": warnings,
+        "artifacts": rendered_artifacts,
+        "inputs": input_metas,
         "created_at": created_at,
     }
 
@@ -568,6 +605,18 @@ def _stored_confidence(trace: dict[str, Any], rec: Any) -> dict[str, Any]:
     }
 
 
+def _stored_list(trace: dict[str, Any], key: str) -> list[dict[str, Any]]:
+    """A list of descriptors saved with the trace, or an empty list.
+
+    Empty means "this run recorded none" — for a row written before the field existed, or for a run
+    whose imagery genuinely failed to render. Nothing is reconstructed to fill the gap: an invented
+    artifact URL would 404, and an invented input metadata block would describe a file this analysis
+    may never have read.
+    """
+    raw = trace.get(key)
+    return [item for item in raw if isinstance(item, dict)] if isinstance(raw, list) else []
+
+
 @router.get("/analysis/{analysis_id}")
 def get_analysis(analysis_id: str, db: Session = Depends(get_db)) -> dict[str, Any]:
     """Re-read one persisted analysis, grounding included.
@@ -608,6 +657,10 @@ def get_analysis(analysis_id: str, db: Session = Depends(get_db)) -> dict[str, A
         "execution_trace": trace,
         "data": rec.data,
         "warnings": list(trace.get("warnings", [])),
+        # Read back from the trace blob the run wrote, so a reloaded analysis keeps its imagery and
+        # its input metadata instead of coming back as a result page with an empty Imagery panel.
+        "artifacts": _stored_list(trace, "artifacts"),
+        "inputs": _stored_list(trace, "inputs"),
         "duration_ms": rec.duration_ms,
         "created_at": rec.created_at,
     }

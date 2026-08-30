@@ -247,10 +247,11 @@ class TestNoChange:
 
 
 class TestSummaryPhrasing:
-    """Phrasing of the two conditional clauses in :meth:`ChangeTool._summarize`, for the cases the
-    demo pair does not exercise: change with no georeferenced area, and spectral-only change with no
-    land-cover conversion to name. Driven with a duck-typed stub so the branches are covered without
-    fabricating a full ``ChangeResult``."""
+    """Phrasing of the conditional clauses in :meth:`ChangeTool._summarize`, for the cases the
+    demo pair does not exercise: change with no georeferenced area, spectral-only change with no
+    land-cover conversion to name, and a conversion the evidence does not support asserting.
+    Driven with a duck-typed stub so the branches are covered without fabricating a full
+    ``ChangeResult``."""
 
     def test_change_without_area_or_named_transition(self):
         stub = SimpleNamespace(
@@ -259,9 +260,35 @@ class TestSummaryPhrasing:
             changed_area_m2=None,  # no georeference -> the km² clause must be omitted
             corroborated_fraction=0.5,
             dominant_transition=lambda: None,  # spectral-only change, no class conversion to name
+            semantic_transition=lambda: None,
+            semantic_withheld_reason=None,  # nothing was withheld: there was nothing to withhold
         )
         sentence = ChangeTool._summarize(stub)
         assert "12.0%" in sentence  # measured fraction still reported
         assert "km" not in sentence  # area clause skipped, not invented as 0
         assert "dominant transition" not in sentence.lower()  # transition clause skipped
         assert "corroborated" in sentence.lower()  # corroboration clause always present
+        # No conversion existed, so the sentence must not imply one was suppressed either.
+        assert "no specific land-cover conversion" not in sentence.lower()
+
+    def test_withheld_conversion_is_stated_not_silently_dropped(self):
+        """A measured transition the evidence cannot support must be *reported as withheld*.
+
+        Silently omitting it would leave the reader of a transitions table with nine rows and no
+        explanation of why none is named; asserting it is the fabrication the brief forbids. The
+        only honest third option is to say the difference was measured and the interpretation
+        withheld, with the reason.
+        """
+        stub = SimpleNamespace(
+            changed_pixels=5000,
+            changed_fraction=0.31,
+            changed_area_m2=None,
+            corroborated_fraction=0.11,
+            dominant_transition=lambda: SimpleNamespace(),
+            semantic_transition=lambda: None,  # gate or corroboration refused it
+            semantic_withheld_reason="Registration quality 0.08 is below the 0.45 required.",
+        )
+        sentence = ChangeTool._summarize(stub)
+        assert "31.0%" in sentence  # the measurement is still delivered
+        assert "no specific land-cover conversion is claimed" in sentence.lower()
+        assert "0.45" in sentence  # the reason travels with the refusal

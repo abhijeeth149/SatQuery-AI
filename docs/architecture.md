@@ -336,22 +336,22 @@ it. A test keyword-matches every mapped class back to a listed surface to keep t
 
 | Class | Optical alone (F1) | Fused (F1) |
 |---|---|---|
-| built-up | 0.7756 | **0.9989** |
-| bare soil | 0.9841 | 0.9945 |
+| built-up | 0.7861 | **0.9989** |
+| bare soil | 0.9833 | 0.9945 |
 | vegetation | 0.9904 | 0.9905 |
 | water | 0.9630 | 0.9630 |
-| **overall accuracy** | 0.9777 | **0.9923** |
+| **overall accuracy** | 0.9768 | **0.9923** |
 
 **The shape of the improvement is the evidence that the rules are physics rather than a fit.**
-Built-up precision rises 0.7072 → 0.9997 because 2,753 SWIR-bright, ploughing-textured bare-soil
-pixels stop being called buildings — while water moves by 0.0000 and vegetation by 0.0001, the axis
+Built-up precision rises 0.6651 → 0.9997 because 3,770 SWIR-bright, ploughing-textured bare-soil
+pixels stop being called buildings — while water moves by 0.0000 and vegetation by 0.0000, the axis
 Rule B forbids radar from touching. A rule tuned for score would have lifted everything a little.
 The suite asserts that non-movement directly (`< 1e-9` for water), which is the test that separates a
 physical rule from a fitted one.
 
 Both directions of the built-up conflict resolved correctly, and the rule was fixed in advance so it
-could have been wrong in either: radar **asserting** built-up over optical bare soil — 1,083 pixels,
-1,083 truly built; radar **withdrawing** an optical built-up claim — 2,787 pixels, of which 2,733 are
+could have been wrong in either: radar **asserting** built-up over optical bare soil — 298 pixels,
+298 truly built; radar **withdrawing** an optical built-up claim — 3,798 pixels, of which 3,770 are
 truly bare soil.
 
 **The case fusion exists for.** Given RGB-only optical, the classifier *refuses* to claim built-up at
@@ -369,15 +369,18 @@ could not tell* into *radar disagrees*. The optical claim stands, labelled uncor
 method is reported as `decision-level-optical-sar-partial` so the caller can see half the arbitration
 was unavailable. This was a live bug caught while writing the suite, not a designed-in case.
 
-**Sensor agreement is reported, not used as a gate.** 98.51% of jointly-observed pixels agree. It is
+**Sensor agreement is reported, not used as a gate.** 98.43% of jointly-observed pixels agree, and
+the per-pixel evidence label is *provenance* rather than a reliability score: accuracy is 0.9923 on
+the corroborated majority against 0.9927 on the arbitrated remainder, so the two are
+indistinguishable and nothing reads the label as a correctness prediction. It is
 tempting to threshold a rising conflict fraction as a "wrong scene" detector; that was tested and
 **rejected by measurement**:
 
 | Condition | Conflict fraction |
 |---|---|
-| Correct optical date, perfectly aligned | 0.0149 |
-| Correct date, shifted 20 px | 0.0525 |
-| **Wrong date, perfectly aligned** | **0.0455** |
+| Correct optical date, perfectly aligned | 0.0157 |
+| Correct date, shifted 20 px | 0.0532 |
+| **Wrong date, perfectly aligned** | **0.0514** |
 
 A 20-pixel misregistration of the *right* scene looks worse than the *wrong* scene aligned, so the
 quantity cannot distinguish the two failures and must not be thresholded as though it could.
@@ -401,7 +404,7 @@ plausibility.
 
 **The source mask is a classifier decision, never a raw index.** Thresholding NDBI directly would be
 the obvious way to ground "buildings", and it is catastrophic: on the demo scene it reaches recall
-**0.9997** at precision **0.0406**, IoU **0.0406**, against the §4 cascade's IoU **0.6334**. That
+**0.9997** at precision **0.0406**, IoU **0.0406**, against the §4 cascade's IoU **0.6475**. That
 shape — finds nearly everything, is nearly always wrong — is exactly what a fabricated detection
 looks like from the outside, because bare soil is SWIR-bright too. Grounding therefore consumes
 `LandCoverResult` or `FusionResult` and never thresholds an index itself; per-region index values are
@@ -409,23 +412,23 @@ carried only as *scores*, and bare soil gets none at all, because it is the casc
 and no index magnitude means "more bare".
 
 **No morphological cleaning is applied by default.** Opening and closing the built-up mask makes it
-look tidier and deletes the objects in it: 25 regions become **15** at radius 1 and **2** at radius 2,
+look tidier and deletes the objects in it: 23 regions become **19** at radius 1 and **10** at radius 2,
 and the region-level true-positive count is **0** at both — morphology here removes objects, not
 noise.
 
 **Counting is a separate claim from extent, and it needs radar.** Built-up pixel F1 is a respectable
-0.7756 from optical alone (§4.7), and the region-level precision and recall of the same mask are
+0.7861 from optical alone (§4.7), and the region-level precision and recall of the same mask are
 **0.000** — at every IoU threshold from 0.1 to 0.7. The mechanism is measured, not assumed: false-
-positive soil pixels bridge the blocks, so **one** predicted component touches **19 of the 20**
-ground-truth blocks. Extent is a real answer here and is returned; the count is withheld with a
-caveat naming what would fix it.
+positive soil pixels bridge the blocks, so **one** predicted component touches **all 20** of the
+ground-truth blocks and the other 22 touch none. Extent is a real answer here and is returned; the
+count is withheld with a caveat naming what would fix it.
 
 | Class | Source | Regions | Truth | TP | FP | Precision | Recall | Mean IoU |
 |---|---|---|---|---|---|---|---|---|
-| built-up | optical only | 25 | 20 | 0 | 25 | **0.000** | **0.000** | 0.0000 |
+| built-up | optical only | 23 | 20 | 0 | 23 | **0.000** | **0.000** | 0.0000 |
 | built-up | optical + SAR | 20 | 20 | 20 | 0 | **1.000** | **1.000** | **0.9930** |
 | built-up | RGB + SAR | 20 | 20 | 20 | 0 | 1.000 | 1.000 | **0.9930** |
-| bare soil | optical only | 9 | 1 | 1 | 8 | 0.111 | 1.000 | 0.5746 |
+| bare soil | optical only | 12 | 1 | 1 | 11 | 0.083 | 1.000 | 0.5742 |
 | bare soil | optical + SAR | 1 | 1 | 1 | 0 | 1.000 | 1.000 | 0.9890 |
 | water | optical only | 3 | 3 | 3 | 0 | 1.000 | 1.000 | — |
 | vegetation | optical only | 4 | 4 | 4 | 0 | 1.000 | 1.000 | — |
@@ -490,12 +493,21 @@ Tools implement one interface (`validate_input · preprocess · predict · postp
 so implementations are swappable without touching the API or UI.
 
 ```
-preferred (optional learned model, if a checkpoint is present)
+preferred: satquery-rs-visual-v1  ← real EuroSAT-adapted ResNet-18, one task (captioning)
       ↓ unavailable / errors
 deterministic remote-sensing algorithm      ← ships enabled, always works
       ↓ genuinely cannot support the claim
 explicit refusal + warning                  ← never a fabricated box
 ```
+
+Exactly one rung is learned. `satquery-rs-visual-v1` is a `torchvision` ResNet-18 with real
+`IMAGENET1K_V1` weights, linear-probed on real EuroSAT Sentinel-2 imagery (87.25% top-1 on 400
+held-out images) and registered as the `PREFERRED` tool for the captioning task only — a specialist
+evidence component, not the complete VQA system. Its availability is triple-gated on the
+`enable_learned_models` setting, the checkpoint file and an importable torch; `dispatch` drops to the
+deterministic `captioning-landcover-cv` rung on `ModelUnavailableError` alone, so a validation error
+still surfaces as a structured error rather than a silent retry. The other eight tools are
+deterministic and always available. See `docs/remote-sensing-adaptation.md`.
 
 The bottom rung matters most: when evidence is insufficient the system returns
 *"Insufficient evidence for a reliable conclusion"* rather than inventing a detection.
@@ -611,8 +623,8 @@ Recorded here rather than discovered by a judge. Each is a real property of the 
    synthetic rasters with known ground truth. They validate that the *algorithms* work and catch
    regressions; they are not a claim about Sentinel-1 or Sentinel-2 performance.
 9. **Optical-only region counts for built-up and bare soil are withheld, not estimated.** Region
-   precision and recall are 0.000 and 0.111 respectively without radar, at pixel F1 0.7756 and
-   0.9841 — so extent is answerable where the count is not, and no partial count is offered in
+   precision and recall are 0.000 and 0.083 respectively without radar, at pixel F1 0.7861 and
+   0.9833 — so extent is answerable where the count is not, and no partial count is offered in
    place of the withheld one (§4.8).
 10. **A grounded region is a land-cover patch, not a structure.** Twenty built-up patches at 10 m
     per pixel are not twenty buildings. The count is correct as measured and `region_semantics`

@@ -1,4 +1,4 @@
-import { Link, useParams } from 'react-router-dom'
+import { Link, useParams, useSearchParams } from 'react-router-dom'
 import { FileText, Plus, AlertCircle, ArrowLeft, Database } from 'lucide-react'
 import { getAnalysis } from '@/services/api'
 import { useAsync } from '@/lib/use-async'
@@ -19,7 +19,14 @@ import { InputsPanel } from '@/components/result/inputs-panel'
 
 export function ResultPage() {
   const { id } = useParams<{ id: string }>()
-  const { data: result, error, loading } = useAsync(() => getAnalysis(id ?? ''), [id])
+  // `?demo=1` (the dashboard's "View example" links) names the shipped recording for this id, which
+  // the backend's own run numbering can otherwise collide with.
+  const [search] = useSearchParams()
+  const recorded = search.get('demo') === '1'
+  const { data: result, error, loading } = useAsync(
+    () => getAnalysis(id ?? '', { recorded }),
+    [id, recorded],
+  )
 
   if (loading) {
     return (
@@ -69,7 +76,8 @@ export function ResultPage() {
         actions={
           <>
             <Button asChild variant="outline">
-              <Link to={`/analysis/${result.id}/report`}>
+              {/* Carry the marker through, so the report is built from the same analysis as the page. */}
+              <Link to={`/analysis/${result.id}/report${recorded ? '?demo=1' : ''}`}>
                 <FileText />
                 View report
               </Link>

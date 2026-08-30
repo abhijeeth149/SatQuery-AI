@@ -565,7 +565,7 @@ class TestSourceMaskChoice:
         cascade_iou = iou(optical_lc.mask_for(LandCoverClass.BUILT_UP), truth)
 
         assert index_iou == pytest.approx(0.0406, abs=0.005)
-        assert cascade_iou == pytest.approx(0.6334, abs=0.01)
+        assert cascade_iou == pytest.approx(0.6475, abs=0.01)
         assert cascade_iou > 10 * index_iou
 
         recall = int((index_mask & truth).sum()) / int(truth.sum())
@@ -574,16 +574,16 @@ class TestSourceMaskChoice:
     def test_morphological_cleaning_destroys_regions_instead_of_noise(
         self, optical_lc, demo_truth
     ):
-        """Opening and closing the built-up mask leaves 15 regions at radius 1 and 2 at radius 2.
+        """Opening and closing the built-up mask leaves 19 regions at radius 1 and 10 at radius 2.
 
         No true positive is gained at either radius. This is why grounding applies no default
         morphology: the mask looks tidier and the objects in it are gone.
         """
         mask = optical_lc.mask_for(LandCoverClass.BUILT_UP)
         truth = demo_truth == GT_BUILT_UP
-        assert len(components(mask)) == 25
+        assert len(components(mask)) == 23
 
-        for radius, expected in ((1, 15), (2, 2)):
+        for radius, expected in ((1, 19), (2, 10)):
             cleaned = features.clean_mask(
                 mask, open_radius=radius, close_radius=radius, min_area=25
             )
@@ -599,13 +599,13 @@ class TestCountability:
 
         The false-positive soil pixels between the blocks bridge them into one component, so
         every predicted region overlaps several truth blocks and none matches one. A grounding
-        module that reported "25 built-up areas" here would be confidently wrong, which is why
+        module that reported "23 built-up areas" here would be confidently wrong, which is why
         the count is withheld rather than the extent.
         """
         result = ground_query("how many buildings are there", demo_optical)
         truth = demo_truth == GT_BUILT_UP
 
-        assert result.count == 25
+        assert result.count == 23
         assert result.count_reportable is False
         assert result.count_caveat is not None
         assert "co-registered SAR image" in result.count_caveat
@@ -631,17 +631,23 @@ class TestCountability:
         assert measured["precision"] == 0.0
         assert measured["recall"] == 0.0
 
-    def test_one_optical_component_swallows_nineteen_of_the_twenty_blocks(
+    def test_one_optical_component_swallows_all_twenty_of_the_blocks(
         self, optical_lc, demo_truth
     ):
-        """The mechanism behind the 0.000, stated as a measurement rather than an explanation."""
+        """The mechanism behind the 0.000, stated as a measurement rather than an explanation.
+
+        A single bridged component touches every one of the twenty truth blocks, and the other
+        22 components touch none of them: the count is not "roughly right with some merging",
+        it is one blob plus noise.
+        """
         blocks = components(demo_truth == GT_BUILT_UP)
         assert len(blocks) == 20
         touched = [
             sum(1 for b in blocks if (c & b).any())
             for c in components(optical_lc.mask_for(LandCoverClass.BUILT_UP))
         ]
-        assert max(touched) == 19
+        assert max(touched) == 20
+        assert sorted(touched, reverse=True)[1] == 0
 
     def test_radar_makes_the_built_up_count_correct_and_reportable(
         self, demo_optical, demo_sar, demo_truth
@@ -690,7 +696,7 @@ class TestCountability:
     def test_bare_soil_moves_with_built_up_because_it_is_the_same_boundary(
         self, demo_optical, demo_sar, demo_truth
     ):
-        """Nine regions for one truth region from optical, one from the fused map.
+        """Twelve regions for one truth region from optical, one from the fused map.
 
         Bare soil and built-up sit on opposite sides of the boundary radar arbitrates, so a
         countability rule scoped to built-up alone would have left this case broken.
@@ -699,9 +705,9 @@ class TestCountability:
         alone = ground_query("where is the bare soil", demo_optical)
         with_radar = ground_query("where is the bare soil", demo_optical, sar=demo_sar)
 
-        assert alone.count == 9
+        assert alone.count == 12
         assert alone.count_reportable is False
-        assert region_match(alone.mask, truth)["precision"] == pytest.approx(0.111, abs=0.01)
+        assert region_match(alone.mask, truth)["precision"] == pytest.approx(0.083, abs=0.01)
 
         assert with_radar.count == 1
         assert with_radar.count_reportable is True
@@ -788,7 +794,7 @@ class TestSectorSelection:
             for c in components(optical_lc.mask_for(LandCoverClass.BUILT_UP))
             if (c & north_east).sum() / c.sum() > 0.5
         )
-        assert expected == 8
+        assert expected == 11
 
         result = ground_query("built-up areas in the north east", demo_optical)
         assert result.count == expected

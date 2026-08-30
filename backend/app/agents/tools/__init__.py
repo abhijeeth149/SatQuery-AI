@@ -8,15 +8,19 @@ from __future__ import annotations
 from .base import Prepared, Tool, ToolContext, ToolResult, ToolTier
 from .captioning import CaptioningTool
 from .change import ChangeTool
+from .change_vqa import ChangeVqaTool
 from .fusion import FusionTool
 from .grounding import GroundingTool
 from .landcover import LandCoverTool
 from .sar import SarTool
+from .scene import AdaptedSceneCaptioningTool
 from .vqa import VqaTool
 
 __all__ = [
+    "AdaptedSceneCaptioningTool",
     "CaptioningTool",
     "ChangeTool",
+    "ChangeVqaTool",
     "FusionTool",
     "GroundingTool",
     "LandCoverTool",

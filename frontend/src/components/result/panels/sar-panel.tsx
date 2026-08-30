@@ -2,8 +2,16 @@ import type { SarData } from '@/types/api'
 import { Stat, StatGrid, Swatch } from '@/components/result/stat'
 import { Distribution } from '@/components/result/distribution'
 import { classColor, prettifyKey } from '@/lib/classes'
-import { formatPct } from '@/lib/format'
+import { formatPct, formatSarThresholds } from '@/lib/format'
 
+/**
+ * The backscatter distribution, for whatever part of it the run actually measured.
+ *
+ * `histogram_summary` returns `{bins: [], counts: [], mean: null, std: null}` — with no percentiles
+ * at all — for a raster with no finite pixels, so neither the bars nor the summary line can be
+ * assumed to exist. Reading them as plain numbers would repeat the `toFixed` crash that the
+ * thresholds line used to cause.
+ */
 function SpeckleHistogram({
   counts,
   mean,
@@ -11,28 +19,44 @@ function SpeckleHistogram({
   p95,
 }: {
   counts: number[]
-  mean: number
-  p05: number
-  p95: number
+  mean: number | null | undefined
+  p05: number | null | undefined
+  p95: number | null | undefined
 }) {
+  const db = (value: number | null | undefined, label: string) =>
+    typeof value === 'number' && Number.isFinite(value) ? `${label} ${value.toFixed(1)} dB` : null
+  const summary = [db(p05, 'p05'), db(mean, 'mean'), db(p95, 'p95')].filter(
+    (s): s is string => s !== null,
+  )
+  if (counts.length === 0 && summary.length === 0) {
+    return (
+      <p className="text-sm text-muted-foreground">
+        No backscatter distribution was returned for this image.
+      </p>
+    )
+  }
   const max = Math.max(...counts, 1)
   return (
     <div>
-      <div className="flex h-20 items-end gap-px" role="img" aria-label="Backscatter histogram">
-        {counts.map((c, i) => (
-          <div
-            key={i}
-            className="flex-1 rounded-sm bg-primary/70"
-            style={{ height: `${Math.max(1, (c / max) * 100)}%` }}
-            title={`${c}`}
-          />
-        ))}
-      </div>
-      <div className="mt-1 flex justify-between text-xs text-muted-foreground">
-        <span>p05 {p05.toFixed(1)} dB</span>
-        <span>mean {mean.toFixed(1)} dB</span>
-        <span>p95 {p95.toFixed(1)} dB</span>
-      </div>
+      {counts.length > 0 && (
+        <div className="flex h-20 items-end gap-px" role="img" aria-label="Backscatter histogram">
+          {counts.map((c, i) => (
+            <div
+              key={i}
+              className="flex-1 rounded-sm bg-primary/70"
+              style={{ height: `${Math.max(1, (c / max) * 100)}%` }}
+              title={`${c}`}
+            />
+          ))}
+        </div>
+      )}
+      {summary.length > 0 && (
+        <div className="mt-1 flex justify-between text-xs text-muted-foreground">
+          {summary.map((s) => (
+            <span key={s}>{s}</span>
+          ))}
+        </div>
+      )}
     </div>
   )
 }
@@ -86,10 +110,8 @@ export function SarPanel({ data }: { data: SarData }) {
           ))}
         </ul>
         <p className="mt-2 text-xs text-muted-foreground">
-          Backscatter thresholds ({data.thresholds_db.method}): smooth ≤{' '}
-          {data.thresholds_db.smooth.toFixed(1)} dB, bright ≥ {data.thresholds_db.bright.toFixed(1)}{' '}
-          dB. SAR gives scattering behaviour, not material identity — surfaces are candidates, not
-          confirmed classes.
+          {formatSarThresholds(data.thresholds_db)} SAR gives scattering behaviour, not material
+          identity — surfaces are candidates, not confirmed classes.
         </p>
       </section>
 

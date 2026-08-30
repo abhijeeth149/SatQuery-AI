@@ -34,9 +34,6 @@ BACKEND = REPO_ROOT / "backend"
 if str(BACKEND) not in sys.path:
     sys.path.insert(0, str(BACKEND))
 
-import numpy as np  # noqa: E402
-from pyproj import Transformer  # noqa: E402
-
 from app.agents.tools import (  # noqa: E402
     ChangeTool,
     FusionTool,
@@ -47,8 +44,8 @@ from app.agents.tools import (  # noqa: E402
     ToolContext,
     ToolResult,
 )
-from app.core.types import LandCoverClass, Modality, ScatteringRegime  # noqa: E402
-from app.geospatial import viz  # noqa: E402
+from app.core.types import Modality  # noqa: E402
+from app.geospatial import artifacts as artifact_renderer  # noqa: E402
 from app.geospatial.raster import RasterData, load_raster  # noqa: E402
 
 DEMO = REPO_ROOT / "data" / "demo"
@@ -59,122 +56,12 @@ FIXTURE_PNG = REPO_ROOT / "frontend" / "public" / "fixtures"
 # database will mint (§13 format) and the time the request will arrive.
 _BASE_TS = "2026-08-26T09:{:02d}:00Z"
 
-_LANDCOVER_NAMES = {c.code: c.value for c in LandCoverClass if c.code != 0}
-_REGIME_COLORS = {
-    ScatteringRegime.SMOOTH.code: (33, 102, 205),
-    ScatteringRegime.DIFFUSE.code: (46, 154, 62),
-    ScatteringRegime.DOUBLE_BOUNCE.code: (214, 96, 45),
-}
-
 
 # --------------------------------------------------------------------------------------------
 # Loading
 # --------------------------------------------------------------------------------------------
 def _load(rel: str, modality: Modality) -> RasterData:
     return load_raster(DEMO / rel, max_edge=None, modality=modality)
-
-
-def _wgs84_bounds(raster: RasterData) -> dict[str, float] | None:
-    """Axis-aligned lat/lon box enclosing the raster footprint, for a Leaflet image overlay.
-
-    ``None`` for an ungeoreferenced image — the UI then falls back to a plain pixel viewer rather
-    than pretending the picture has coordinates (§8, §7 honesty boundary).
-    """
-    md = raster.metadata
-    if not md.is_georeferenced or md.bounds is None or md.crs_epsg is None:
-        return None
-    minx, miny, maxx, maxy = md.bounds
-    tf = Transformer.from_crs(f"EPSG:{md.crs_epsg}", "EPSG:4326", always_xy=True)
-    corners = [(minx, miny), (minx, maxy), (maxx, miny), (maxx, maxy)]
-    lonlat = [tf.transform(x, y) for x, y in corners]
-    lons = [p[0] for p in lonlat]
-    lats = [p[1] for p in lonlat]
-    return {
-        "south": min(lats),
-        "west": min(lons),
-        "north": max(lats),
-        "east": max(lons),
-    }
-
-
-def _input_meta(raster: RasterData) -> dict[str, Any]:
-    meta = raster.metadata.to_dict()
-    meta["modality"] = raster.modality.value
-    meta["band_roles"] = [r.value for r in raster.band_roles]
-    meta["bounds_wgs84"] = _wgs84_bounds(raster)
-    return meta
-
-
-# --------------------------------------------------------------------------------------------
-# Artifact rendering (real arrays only)
-# --------------------------------------------------------------------------------------------
-def _render_codes(code_map: np.ndarray, code_to_color: dict[int, tuple[int, int, int]]) -> np.ndarray:
-    h, w = code_map.shape
-    out = np.zeros((h, w, 3), dtype=np.uint8)
-    for code, color in code_to_color.items():
-        out[code_map == code] = color
-    return out
-
-
-def _artifacts_for(
-    case_id: str, result: ToolResult, primary: RasterData, bounds: dict[str, float] | None
-) -> list[dict[str, Any]]:
-    """Render base + task overlay PNGs from ``result.raw`` and return artifact descriptors."""
-    out_dir = FIXTURE_PNG / case_id
-    arts: list[dict[str, Any]] = []
-    base = viz.render_rgb(primary)
-    viz.save_png(out_dir / "base.png", base)
-    arts.append(
-        {
-            "kind": "base",
-            "label": "Input image",
-            "url": f"/fixtures/{case_id}/base.png",
-            "bounds_wgs84": bounds,
-            "legend": [],
-        }
-    )
-
-    raw = result.raw
-    overlay: np.ndarray | None = None
-    legend: list[dict[str, str]] = []
-    kind = "overlay"
-    label = "Analysis overlay"
-
-    if hasattr(raw, "class_map") and getattr(raw, "class_map") is not None:
-        overlay = viz.render_class_map(raw.class_map, _LANDCOVER_NAMES)
-        legend = viz.make_legend(
-            [(c.value.replace("_", " ").title(), c.value) for c in LandCoverClass if c.code != 0]
-        )
-        kind, label = "class_map", "Land-cover classification"
-    elif hasattr(raw, "regime_map") and getattr(raw, "regime_map") is not None:
-        overlay = _render_codes(raw.regime_map, _REGIME_COLORS)
-        legend = [
-            {"label": "Smooth", "color": "#2166cd", "key": "smooth"},
-            {"label": "Diffuse", "color": "#2e9a3e", "key": "diffuse"},
-            {"label": "Double bounce", "color": "#d6602d", "key": "double_bounce"},
-        ]
-        kind, label = "regime_map", "SAR scattering regimes"
-    elif hasattr(raw, "change_mask") and getattr(raw, "change_mask") is not None:
-        overlay = viz.overlay_mask(base, raw.change_mask, viz.CLASS_COLORS["change"])
-        legend = viz.make_legend([("Changed", "change")])
-        kind, label = "change_mask", "Detected change"
-    elif hasattr(raw, "mask") and getattr(raw, "mask") is not None:
-        overlay = viz.overlay_mask(base, raw.mask, viz.CLASS_COLORS["highlight"])
-        legend = viz.make_legend([("Matched region", "highlight")])
-        kind, label = "grounding", "Grounded regions"
-
-    if overlay is not None:
-        viz.save_png(out_dir / "overlay.png", overlay)
-        arts.append(
-            {
-                "kind": kind,
-                "label": label,
-                "url": f"/fixtures/{case_id}/overlay.png",
-                "bounds_wgs84": bounds,
-                "legend": legend,
-            }
-        )
-    return arts
 
 
 # --------------------------------------------------------------------------------------------
@@ -358,9 +245,15 @@ def _build(case: Case) -> dict[str, Any]:
     ctx = ToolContext(case.query, rasters)
     result, trace = _run_traced(tool, ctx)
 
-    primary = rasters[0]
-    bounds = _wgs84_bounds(primary)
-    artifacts = _artifacts_for(case.case_id, result, primary, bounds)
+    artifacts, render_warnings = artifact_renderer.render_artifacts(
+        result.raw,
+        rasters,
+        out_dir=FIXTURE_PNG / case.case_id,
+        url_prefix=f"/fixtures/{case.case_id}",
+    )
+    if render_warnings:
+        # A fixture with missing imagery is a broken fixture, not something to record and ship.
+        raise RuntimeError(f"{case.case_id}: {'; '.join(render_warnings)}")
 
     sufficient = result.is_sufficient
     total_ms = round(sum(s["duration_ms"] for s in trace), 2)
@@ -385,7 +278,7 @@ def _build(case: Case) -> dict[str, Any]:
         "evidence": payload["evidence"],
         "warnings": payload["warnings"],
         "data": payload["data"],
-        "inputs": [_input_meta(r) for r in rasters],
+        "inputs": [artifact_renderer.input_meta(r) for r in rasters],
         "trace": trace,
         "artifacts": artifacts,
         "fixture": True,

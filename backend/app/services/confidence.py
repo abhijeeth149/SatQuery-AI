@@ -45,6 +45,7 @@ if TYPE_CHECKING:  # imported lazily elsewhere; only needed for type checking he
     from .grounding import GroundingResult
     from .landcover import LandCoverResult
     from .sar import SarResult
+    from .scene import SceneClassificationResult
 
 logger = get_logger(__name__)
 
@@ -193,6 +194,13 @@ _W_QUALITY = 0.25
 _W_ALIGNMENT = 0.20
 _W_WARNINGS = 0.10
 
+# Weight for the change-specific "can the difference be attributed to a named land-cover
+# conversion?" contributor. Deliberately a contributor and not a gate: withholding the semantic
+# interpretation must not drag the confidence in the *measured* pixel difference down to
+# insufficient, because the measurement is still sound. It sits between alignment and warnings
+# because it qualifies the answer's interpretation rather than its measurement.
+_W_ATTRIBUTION = 0.15
+
 
 def _bimodality_signal(bimodality: float) -> float:
     """Map Sarle's coefficient onto ``[0, 1]`` relative to the one-population boundary.
@@ -264,6 +272,36 @@ def _warning_factor(warnings: list[str]) -> ConfidenceFactor:
 # ---------------------------------------------------------------------------
 # Per-service adapters
 # ---------------------------------------------------------------------------
+def _semantic_attribution_factor(result: ChangeResult) -> ConfidenceFactor | None:
+    """How well the measured difference can be attributed to a named land-cover conversion.
+
+    ``None`` when the result names no class conversion at all — a purely spectral change has no
+    attribution to score, and inventing a value for it would either flatter or penalise a result
+    for a claim it never made.
+
+    A CONTRIBUTOR, not a GATE, and that is the whole point of the separation the brief asks for:
+    a well-measured pixel difference whose semantic interpretation is withheld is still a good
+    measurement. Gating on attribution would collapse "we measured this reliably but will not name
+    the conversion" into "we measured nothing", which is the confusion this factor exists to avoid.
+    """
+    dominant = result.dominant_transition()
+    if dominant is None:
+        return None
+    reportable = result.transition_is_reportable(dominant)
+    return ConfidenceFactor(
+        name="semantic_attribution",
+        value=float(min(max(dominant.spectral_agreement, 0.0), 1.0)),
+        weight=_W_ATTRIBUTION,
+        reason=(
+            f"Largest measured transition ({dominant.before.value} to {dominant.after.value}) is "
+            f"corroborated on {dominant.spectral_agreement * 100:.0f}% of its pixels; the named "
+            f"conversion is "
+            + ("reported." if reportable else "withheld as a conclusion.")
+        ),
+        kind=FactorKind.CONTRIBUTOR,
+    )
+
+
 def for_change(
     result: ChangeResult, quality: InputQuality | None = None
 ) -> ConfidenceReport:
@@ -303,6 +341,9 @@ def for_change(
         ),
         _warning_factor(result.warnings),
     ]
+    attribution = _semantic_attribution_factor(result)
+    if attribution is not None:
+        factors.append(attribution)
     q = _input_quality_factor(quality)
     if q is not None:
         factors.append(q)
@@ -468,6 +509,85 @@ def for_grounding(
                 reason=(
                     "Region extent is reported; the region count is withheld as unreliable "
                     "for this class and sensor set."
+                ),
+            )
+        )
+    q = _input_quality_factor(quality)
+    if q is not None:
+        factors.append(q)
+    return aggregate(factors)
+
+
+def for_adapted_scene(
+    scene: SceneClassificationResult,
+    landcover: LandCoverResult | None = None,
+    quality: InputQuality | None = None,
+) -> ConfidenceReport:
+    """Confidence for an answer that leans on the adapted learned scene classifier.
+
+    The model's own top-1 probability is the gate: a ten-class softmax that puts 0.22 on its best
+    guess has effectively declined, and no amount of clean input should let that be reported as a
+    confident land-use claim. The margin over the runner-up is a separate contributor because a
+    0.45/0.44 split and a 0.45/0.06 split are equally "0.45 confident" by probability alone yet mean
+    very different things.
+
+    Two further contributors keep the score tied to reality rather than to the model's self-belief:
+    the model's measured held-out accuracy (included only when
+    ``python -m ml.adaptation.evaluate`` has actually recorded one), and the deterministic
+    classifier's class separability where a land-cover result is available, which is independent
+    corroboration from a different method. Neither is a gate — a specialist model can be right about
+    a scene whose spectral classes overlap — but a model that measured 40% on its own test split
+    cannot certify a HIGH answer.
+    """
+    factors = [
+        ConfidenceFactor(
+            name="model_probability",
+            value=scene.top.probability,
+            weight=_W_EVIDENCE,
+            reason=(
+                f"The adapted model assigned {scene.top.probability * 100:.1f}% probability to "
+                f"'{scene.top.class_name}' across {len(scene.ranked)} land-use classes."
+            ),
+            kind=FactorKind.GATE,
+        ),
+        ConfidenceFactor(
+            name="model_margin",
+            value=scene.margin,
+            weight=_W_ATTRIBUTION,
+            reason=(
+                f"Margin over the runner-up class was {scene.margin * 100:.1f} points"
+                + (
+                    f" ({scene.ranked[1].class_name} at "
+                    f"{scene.ranked[1].probability * 100:.1f}%)."
+                    if len(scene.ranked) > 1
+                    else "."
+                )
+            ),
+        ),
+        _warning_factor(scene.warnings),
+    ]
+    if scene.test_accuracy is not None:
+        factors.append(
+            ConfidenceFactor(
+                name="model_test_accuracy",
+                value=scene.test_accuracy,
+                weight=_W_ATTRIBUTION,
+                reason=(
+                    f"This component measured {scene.test_accuracy * 100:.1f}% top-1 accuracy on "
+                    "its held-out remote-sensing test split."
+                ),
+            )
+        )
+    if landcover is not None:
+        factors.append(
+            ConfidenceFactor(
+                name="class_separability",
+                value=landcover.separability,
+                weight=_W_ALIGNMENT,
+                reason=(
+                    f"The independent deterministic classifier separated its classes at "
+                    f"{landcover.separability:.2f} (method: {landcover.method}), corroborating "
+                    "the scene description."
                 ),
             )
         )

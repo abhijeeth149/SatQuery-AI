@@ -1,10 +1,32 @@
-"""Bringing rasters onto a common grid, and measuring how well they actually line up.
+"""Bringing rasters onto a common grid, measuring how well they line up, and correcting it.
 
-The important function here is :func:`measure_registration`. The brief forbids claiming that
-optical/SAR co-registration is correct without validating it, so alignment quality is
-*measured* — via gradient-domain phase correlation plus normalised cross-correlation — and
-the measured sub-pixel offset flows into the confidence score. If the images are misaligned,
-the system says so.
+Three responsibilities, deliberately separated:
+
+* :func:`align_to_reference` puts the second raster on the first's *grid* — by coordinates
+  when both sides are georeferenced, by pixel resize when they are not. Being on the same grid
+  is not the same as lining up: a resize matches the array shape and says nothing about whether
+  the ground under pixel (100, 100) is the same in both.
+
+* :func:`measure_registration` measures whether they actually line up, via gradient-domain
+  phase correlation plus normalised cross-correlation. The brief forbids claiming that
+  co-registration is correct without validating it, so this is a measurement that flows into
+  the confidence score. If the images are misaligned, the system says so.
+
+* :func:`coregister` *corrects* a measured misalignment, and this is the part that used to be
+  missing. Measuring an 82-pixel offset and then differencing the pair anyway reports the
+  misalignment itself as change at every land-cover boundary. Correction is coarse-to-fine
+  (a Gaussian-pyramid phase correlation, because plain full-resolution phase correlation
+  cannot recover a shift of tens of pixels) with an independent ORB feature-matching estimate
+  as a second candidate. Crucially the correction is **verified, never assumed**: every
+  candidate shift is applied and the registration re-measured, and a candidate is kept only if
+  the re-measured quality actually improved on doing nothing. A correction that does not help
+  is discarded and said so.
+
+:func:`registration_gate` then turns the final measurement into an explicit pass/fail on
+whether the pair is aligned well enough to support *semantic* claims — that a particular
+land-cover class became another one. A pair can be good enough to say "something differs here"
+and not good enough to say "vegetation became bare soil", and those two verdicts are reported
+separately rather than collapsed into one confidence number.
 """
 from __future__ import annotations
 
@@ -38,6 +60,123 @@ _CONTINUOUS_DOWN = Resampling.average
 # their own warning, because what the misalignment corrupts differs — change detection
 # over-reports changed area, optical/SAR fusion over-reports sensor conflict.
 REGISTRATION_WARN_PX = 1.0
+
+# --- thresholds for the semantic-claim gate (§3 point 5) ---------------------------------------
+# A pair can be well enough registered to support "something differs in this area" and not well
+# enough to support "this class became that class". The second claim compares two *per-pixel
+# classifications*, so a residual offset does not merely blur it — it systematically converts one
+# side of every land-cover boundary into the class on the other side, which is precisely the shape
+# of a spurious transition. These three thresholds are the gate on that stronger claim.
+
+SEMANTIC_MAX_OFFSET_PX = 2.0
+"""Residual offset above which per-pixel class transitions are not attributable to the ground.
+
+Two pixels is where a boundary displacement stops being explainable as mixed pixels: at 1 px the
+disagreement along an edge is one pixel wide and dominated by genuine mixture, at 2 px it is a
+two-pixel ribbon of manufactured transition following every boundary in the scene.
+"""
+
+SEMANTIC_MIN_NCC = 0.35
+"""Structural correlation below which the two grids cannot be shown to describe the same ground.
+
+Independent of offset: a pair can report a small offset simply because phase correlation found no
+peak worth reporting. Requiring measured common structure is what distinguishes "aligned" from
+"no evidence of misalignment".
+"""
+
+SEMANTIC_MIN_SCORE = 0.45
+"""Aggregate registration score below which semantic transitions are withheld."""
+
+# --- co-registration correction ----------------------------------------------------------------
+
+COREGISTER_MIN_OFFSET_PX = 0.25
+"""Below this measured offset there is nothing worth correcting; resampling would only blur."""
+
+COREGISTER_MAX_LEVELS = 6
+"""Gaussian-pyramid depth for the coarse-to-fine shift search.
+
+Each level halves the resolution, so the recoverable shift roughly doubles: six levels take the
+search range from the few pixels plain phase correlation manages to the order of a hundred, which
+is the regime an ungeoreferenced pair of screenshots actually lands in.
+"""
+
+_PYRAMID_MIN_EDGE = 32
+"""Stop coarsening below this edge length — phase correlation on a tiny array is noise."""
+
+_ORB_FEATURES = 2000
+_ORB_MIN_MATCHES = 12
+_ORB_MAD_TO_SIGMA = 1.4826
+_ORB_INLIER_SIGMA = 2.5
+
+
+@dataclass(frozen=True)
+class RegistrationGate:
+    """Explicit verdict on whether a pair is aligned well enough for semantic change claims.
+
+    Separated from :class:`RegistrationQuality` because the two answer different questions. The
+    quality object says *how well* the images line up; this says *what may therefore be claimed*.
+    Both the thresholds and the measurements behind the verdict are carried, so a refusal can be
+    shown rather than asserted.
+    """
+
+    passed: bool
+    reasons: list[str]
+    measured: dict[str, float]
+
+    @property
+    def thresholds(self) -> dict[str, float]:
+        return {
+            "max_offset_px": SEMANTIC_MAX_OFFSET_PX,
+            "min_ncc": SEMANTIC_MIN_NCC,
+            "min_score": SEMANTIC_MIN_SCORE,
+        }
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "passed": self.passed,
+            "reasons": list(self.reasons),
+            "measured": dict(self.measured),
+            "thresholds": self.thresholds,
+        }
+
+
+def registration_gate(registration: RegistrationQuality) -> RegistrationGate:
+    """Decide whether ``registration`` supports per-pixel semantic transition claims.
+
+    All three thresholds must hold. Failing the gate is *not* a failure of the analysis: the
+    measured pixel difference is still a real observation and is still reported. What the gate
+    withholds is the interpretation of that difference as a named land-cover conversion.
+    """
+    offset = registration.offset_magnitude
+    reasons: list[str] = []
+    if offset > SEMANTIC_MAX_OFFSET_PX:
+        reasons.append(
+            f"A residual misalignment of {offset:.1f} px remains after co-registration "
+            f"(the limit for per-pixel class comparison is {SEMANTIC_MAX_OFFSET_PX:.1f} px). "
+            f"At this offset a land-cover boundary in one date sits on top of the neighbouring "
+            f"class in the other, so a transition would be manufactured along every boundary."
+        )
+    if registration.ncc < SEMANTIC_MIN_NCC:
+        reasons.append(
+            f"Structural agreement between the two dates is {registration.ncc:.2f}, below the "
+            f"{SEMANTIC_MIN_NCC:.2f} needed to establish that the two grids describe the same "
+            f"ground."
+        )
+    if registration.score < SEMANTIC_MIN_SCORE:
+        reasons.append(
+            f"Overall co-registration quality is {registration.score:.2f}, below the "
+            f"{SEMANTIC_MIN_SCORE:.2f} required before a class-to-class conversion can be "
+            f"attributed to the ground rather than to the alignment."
+        )
+    return RegistrationGate(
+        passed=not reasons,
+        reasons=reasons,
+        measured={
+            "offset_magnitude_px": round(offset, 3),
+            "ncc": round(registration.ncc, 4),
+            "score": round(registration.score, 4),
+        },
+    )
 
 
 @dataclass
@@ -195,6 +334,264 @@ def measure_registration(a: RasterData, b: RasterData) -> RegistrationQuality:
         offset_x=float(dx), offset_y=float(dy),
         phase_response=float(np.clip(response, 0.0, 1.0)),
         ncc=ncc, score=score, warnings=warnings,
+    )
+
+
+@dataclass
+class CoregistrationResult:
+    """Outcome of attempting to correct a measured misalignment.
+
+    Attributes:
+        raster: The corrected copy of the source raster, or the original when no correction was
+            kept. Always safe to use downstream.
+        initial: Registration measured *before* any correction.
+        final: Registration measured *after* the kept correction. Equal to ``initial`` when
+            nothing was applied.
+        shift_x / shift_y: The translation applied, in pixels of the reference grid. Zero when
+            no correction was kept.
+        method: ``"none"`` (already aligned), ``"pyramid-phase-correlation"``,
+            ``"orb-translation"``, or ``"rejected"`` when candidates were tried and none improved
+            on doing nothing.
+        candidates: Every candidate that was evaluated, with the score it achieved — the record
+            that the kept shift was chosen by measurement rather than asserted.
+    """
+
+    raster: RasterData
+    initial: RegistrationQuality
+    final: RegistrationQuality
+    shift_x: float
+    shift_y: float
+    method: str
+    candidates: list[dict[str, Any]] = field(default_factory=list)
+    warnings: list[str] = field(default_factory=list)
+
+    @property
+    def applied(self) -> bool:
+        return self.method not in ("none", "rejected")
+
+    @property
+    def improvement(self) -> float:
+        return self.final.score - self.initial.score
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "method": self.method,
+            "applied": self.applied,
+            "shift_x_px": round(self.shift_x, 3),
+            "shift_y_px": round(self.shift_y, 3),
+            "initial": self.initial.to_dict(),
+            "final": self.final.to_dict(),
+            "score_improvement": round(self.improvement, 4),
+            "candidates": list(self.candidates),
+            "warnings": list(self.warnings),
+        }
+
+
+def _translate(a: np.ndarray, dx: float, dy: float, *, fill: float = 0.0) -> np.ndarray:
+    """Sub-pixel translation of a 2-D array by ``(dx, dy)`` pixels (positive = right/down)."""
+    matrix = np.array([[1.0, 0.0, dx], [0.0, 1.0, dy]], dtype=np.float32)
+    return cv2.warpAffine(
+        a.astype(np.float32),
+        matrix,
+        (a.shape[1], a.shape[0]),
+        flags=cv2.INTER_LINEAR,
+        borderMode=cv2.BORDER_CONSTANT,
+        borderValue=fill,
+    )
+
+
+def _phase_shift(a: np.ndarray, b: np.ndarray) -> tuple[float, float, float]:
+    """Windowed phase correlation: ``(dx, dy, response)`` such that ``b ≈ a`` shifted by (dx, dy)."""
+    try:
+        window = cv2.createHanningWindow((a.shape[1], a.shape[0]), cv2.CV_32F)
+        (dx, dy), response = cv2.phaseCorrelate(
+            a.astype(np.float64), b.astype(np.float64), window.astype(np.float64)
+        )
+    except cv2.error as exc:  # pragma: no cover - degenerate input
+        logger.warning("phase correlation failed", extra={"error": str(exc)})
+        return 0.0, 0.0, 0.0
+    return float(dx), float(dy), float(np.clip(response, 0.0, 1.0))
+
+
+def _pyramid_shift(ga: np.ndarray, gb: np.ndarray) -> tuple[float, float, float]:
+    """Coarse-to-fine phase-correlation shift estimate, in full-resolution pixels.
+
+    Plain phase correlation on the full image can only recover a shift small relative to the
+    dominant feature spacing — in practice a few pixels. Halving the resolution halves the shift
+    in pixels, so a shift of tens of pixels becomes tractable at a coarse level, and each finer
+    level then refines the residual. This is the standard construction and introduces no tunable
+    quantity: the only choices are how deep to go (bounded by :data:`_PYRAMID_MIN_EDGE`) and that
+    each level estimates the residual of the accumulated estimate so far.
+    """
+    pyr_a, pyr_b = [ga], [gb]
+    for _ in range(COREGISTER_MAX_LEVELS - 1):
+        if min(pyr_a[-1].shape) < _PYRAMID_MIN_EDGE * 2:
+            break
+        pyr_a.append(cv2.pyrDown(pyr_a[-1]))
+        pyr_b.append(cv2.pyrDown(pyr_b[-1]))
+
+    total_x = total_y = 0.0
+    response = 0.0
+    for level in range(len(pyr_a) - 1, -1, -1):
+        scale = float(2**level)
+        a_lvl, b_lvl = pyr_a[level], pyr_b[level]
+        # Undo the accumulated estimate at this level's scale, then measure what is left.
+        moved = _translate(b_lvl, -total_x / scale, -total_y / scale)
+        dx, dy, response = _phase_shift(a_lvl, moved)
+        total_x += dx * scale
+        total_y += dy * scale
+    return total_x, total_y, response
+
+
+def _orb_shift(ga: np.ndarray, gb: np.ndarray) -> tuple[float, float, int]:
+    """Translation from matched ORB keypoints, with MAD-based outlier rejection.
+
+    An independent estimator with a completely different failure mode from phase correlation:
+    it is local and sparse where phase correlation is global and dense, so it survives cases
+    where a large uniform region dominates the spectrum. Restricting the model to a pure
+    translation (rather than fitting a homography) is deliberate — the two dates are already on a
+    common grid, so the only free parameter left is the shift, and a richer model would have more
+    freedom to fit the outliers than to reject them.
+
+    Returns:
+        ``(dx, dy, inliers)`` such that ``b ≈ a`` shifted by (dx, dy). ``inliers`` is 0 when no
+        usable estimate could be formed.
+    """
+    img_a = _to_uint8(ga)
+    img_b = _to_uint8(gb)
+    try:
+        orb = cv2.ORB_create(nfeatures=_ORB_FEATURES)
+        kp_a, des_a = orb.detectAndCompute(img_a, None)
+        kp_b, des_b = orb.detectAndCompute(img_b, None)
+    except cv2.error as exc:  # pragma: no cover - degenerate input
+        logger.warning("ORB detection failed", extra={"error": str(exc)})
+        return 0.0, 0.0, 0
+    if des_a is None or des_b is None or len(kp_a) < _ORB_MIN_MATCHES or len(kp_b) < _ORB_MIN_MATCHES:
+        return 0.0, 0.0, 0
+
+    matcher = cv2.BFMatcher(cv2.NORM_HAMMING, crossCheck=True)
+    matches = matcher.match(des_a, des_b)
+    if len(matches) < _ORB_MIN_MATCHES:
+        return 0.0, 0.0, 0
+
+    deltas = np.array(
+        [
+            (kp_b[m.trainIdx].pt[0] - kp_a[m.queryIdx].pt[0],
+             kp_b[m.trainIdx].pt[1] - kp_a[m.queryIdx].pt[1])
+            for m in matches
+        ],
+        dtype=np.float64,
+    )
+    median = np.median(deltas, axis=0)
+    residual = np.linalg.norm(deltas - median, axis=1)
+    mad = float(np.median(residual))
+    tolerance = max(mad * _ORB_MAD_TO_SIGMA * _ORB_INLIER_SIGMA, 1.0)
+    inliers = deltas[residual <= tolerance]
+    if inliers.shape[0] < _ORB_MIN_MATCHES:
+        return 0.0, 0.0, 0
+    dx, dy = (float(v) for v in np.mean(inliers, axis=0))
+    return dx, dy, int(inliers.shape[0])
+
+
+def _to_uint8(a: np.ndarray) -> np.ndarray:
+    """Percentile-stretch a float array into the 8-bit range ORB requires."""
+    return (_normalize01(a) * 255.0).astype(np.uint8)
+
+
+def _shift_raster(src: RasterData, dx: float, dy: float) -> RasterData:
+    """Translate every band of ``src`` by ``(dx, dy)`` pixels, preserving the invalid mask.
+
+    The vacated border becomes NaN rather than zero: a shifted image genuinely has no data where
+    it moved in from, and filling it with a plausible value would create pixels that appear
+    measured but were invented.
+    """
+    out = np.empty_like(src.data, dtype=np.float32)
+    for i in range(src.data.shape[0]):
+        band = src.data[i]
+        invalid = ~np.isfinite(band)
+        filled = np.where(invalid, 0.0, band).astype(np.float32)
+        moved = _translate(filled, dx, dy)
+        # Translate the invalid mask the same way, and treat anything the shift brought in from
+        # outside the frame as invalid too.
+        mask = _translate(invalid.astype(np.float32), dx, dy, fill=1.0)
+        inside = _translate(np.ones_like(filled), dx, dy, fill=0.0)
+        out[i] = np.where((mask > 0.5) | (inside < 0.5), np.nan, moved)
+    return _rebuild(src, out, src.metadata)
+
+
+def coregister(src: RasterData, ref: RasterData) -> CoregistrationResult:
+    """Correct a measured misalignment of ``src`` against ``ref``, keeping only what verifies.
+
+    Both rasters must already be on a common grid (:func:`align_to_reference`). The measured
+    offset is corrected by whichever of two independent estimators — coarse-to-fine phase
+    correlation, or ORB feature matching — produces the best *re-measured* registration quality.
+    Doing nothing is always one of the candidates, so a correction is applied only when it is
+    demonstrably better than leaving the pair alone.
+
+    Raises:
+        GeospatialError: if the shapes differ.
+    """
+    initial = measure_registration(src, ref)
+    if initial.offset_magnitude <= COREGISTER_MIN_OFFSET_PX:
+        return CoregistrationResult(
+            raster=src, initial=initial, final=initial, shift_x=0.0, shift_y=0.0, method="none",
+            candidates=[{"method": "none", "score": round(initial.score, 4)}],
+        )
+
+    ga = _gradient_magnitude(_representative_band(ref))
+    gb = _gradient_magnitude(_representative_band(src))
+
+    # `_phase_shift(ga, gb)` gives the shift by which src sits *ahead* of ref, so the correction
+    # that brings src back onto ref is its negation.
+    proposals: list[tuple[str, float, float]] = []
+    px, py, _ = _pyramid_shift(ga, gb)
+    if math.hypot(px, py) > COREGISTER_MIN_OFFSET_PX:
+        proposals.append(("pyramid-phase-correlation", -px, -py))
+    ox, oy, inliers = _orb_shift(ga, gb)
+    if inliers and math.hypot(ox, oy) > COREGISTER_MIN_OFFSET_PX:
+        proposals.append(("orb-translation", -ox, -oy))
+
+    candidates: list[dict[str, Any]] = [
+        {"method": "none", "shift_x_px": 0.0, "shift_y_px": 0.0, "score": round(initial.score, 4)}
+    ]
+    best = ("none", 0.0, 0.0, initial, src)
+    for method, dx, dy in proposals:
+        shifted = _shift_raster(src, dx, dy)
+        try:
+            measured = measure_registration(shifted, ref)
+        except GeospatialError:  # pragma: no cover - shapes are preserved by _shift_raster
+            continue
+        candidates.append(
+            {
+                "method": method,
+                "shift_x_px": round(dx, 3),
+                "shift_y_px": round(dy, 3),
+                "score": round(measured.score, 4),
+                "residual_offset_px": round(measured.offset_magnitude, 3),
+            }
+        )
+        if measured.score > best[3].score:
+            best = (method, dx, dy, measured, shifted)
+
+    method, dx, dy, final, raster = best
+    warnings: list[str] = []
+    if method == "none":
+        method = "rejected" if proposals else "none"
+        warnings.append(
+            f"An offset of about {initial.offset_magnitude:.1f} px was measured between the two "
+            f"images, and automatic co-registration could not improve on it. The two images may "
+            f"not cover the same ground, or may share too little structure to be aligned."
+        )
+    else:
+        warnings.append(
+            f"The two images were co-registered by {method}: a shift of "
+            f"({dx:+.2f}, {dy:+.2f}) px reduced the measured offset from "
+            f"{initial.offset_magnitude:.1f} px to {final.offset_magnitude:.2f} px and raised "
+            f"registration quality from {initial.score:.2f} to {final.score:.2f}."
+        )
+    return CoregistrationResult(
+        raster=raster, initial=initial, final=final, shift_x=dx, shift_y=dy,
+        method=method, candidates=candidates, warnings=warnings,
     )
 
 

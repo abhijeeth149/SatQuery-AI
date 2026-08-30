@@ -46,34 +46,34 @@ ground truth (reproduced by ``tests/services/test_fusion.py``):
 ===================  ==============  =============
 Class                Optical alone   Fused F1
 ===================  ==============  =============
-built-up             0.7756          **0.9989**
-bare soil            0.9841          0.9945
+built-up             0.7861          **0.9989**
+bare soil            0.9833          0.9945
 vegetation           0.9904          0.9905
 water                0.9630          0.9630
-overall accuracy     0.9777          **0.9923**
+overall accuracy     0.9768          **0.9923**
 ===================  ==============  =============
 
 Built-up is the whole story, and the shape of the improvement is the evidence that the rules
-are physics rather than a fit: precision rises from 0.7072 to 0.9997 because 2,753 SWIR-bright,
+are physics rather than a fit: precision rises from 0.6651 to 0.9997 because 3,770 SWIR-bright,
 ploughing-textured bare-soil pixels stop being called buildings, while water and vegetation —
-the axis Rule B forbids radar from touching — move by 0.0000 and 0.0001 respectively. A fusion
+the axis Rule B forbids radar from touching — move by 0.0000 and 0.0000 respectively. A fusion
 rule tuned for score would have improved everything a little; this one improves exactly the
 axis it claims to and leaves the rest alone.
 
 Both directions of the built-up conflict were resolved correctly, which matters because the
 rule was fixed in advance and could have been wrong in either:
 
-* radar asserting built-up where optical saw bare soil — 1,083 pixels, **1,083** truly built;
-* radar withdrawing optical's built-up claim — 2,787 pixels, of which 2,733 are truly bare
-  soil and 33 are water that the optical water test had already missed at the shoreline.
+* radar asserting built-up where optical saw bare soil — 298 pixels, **298** truly built;
+* radar withdrawing optical's built-up claim — 3,798 pixels, of which 3,770 are truly bare
+  soil and 6 are water that the optical water test had already missed at the shoreline.
 
-Those 33 are the rule's weakest corner and are recorded rather than smoothed over. They are
+Those 6 are the rule's weakest corner and are recorded rather than smoothed over. They are
 ``optical=built_up`` against ``sar=smooth``: Rule A withdraws the built-up claim, and the class
 falls back to bare soil because that is what the optical cascade itself reaches without its
 built-up branch (built-up is carved out of the non-water, non-vegetated remainder). Radar
 agrees the surface is specular but cannot say whether it is water or dry ground, so fusion
 inherits the optical water miss instead of fixing it. Rule B forbids inventing a fix, and a
-special case for this 34-pixel group would be fitting to one scene.
+special case for this 6-pixel group would be fitting to one scene.
 
 **The case fusion exists for.** Given RGB-only optical, :func:`classify_land_cover` refuses to
 claim built-up at all — separating buildings from bare soil needs SWIR, so it reports 0 pixels
@@ -82,11 +82,14 @@ channel recovers built-up at F1 **0.9989** and lifts overall accuracy to 0.9923.
 marginal gain over a working analysis; it is the difference between declining to answer and
 answering correctly, which is the argument for requiring both modalities.
 
-**Sensor agreement is reported, not used as a gate.** 98.51% of jointly-observed pixels agree
-on the demo pair. It is tempting to treat a rising conflict fraction as a "wrong scene"
+**Sensor agreement is reported, not used as a gate.** 98.43% of jointly-observed pixels agree
+on the demo pair, and the evidence label is *provenance* rather than a correctness prediction:
+accuracy is 0.9923 on the corroborated majority against 0.9927 on the arbitrated remainder, so
+the two are indistinguishable and nothing may read the label as a per-pixel reliability score.
+It is also tempting to treat a rising conflict fraction as a "wrong scene"
 detector, and that was tested and rejected: with the correct optical date the fraction runs
-0.0149 → 0.0525 as an artificial shift grows from 0 to 20 px, while the *wrong* date perfectly
-aligned reads 0.0455. A 20-pixel misregistration of the right scene therefore looks worse than
+0.0157 → 0.0532 as an artificial shift grows from 0 to 20 px, while the *wrong* date perfectly
+aligned reads 0.0514. A 20-pixel misregistration of the right scene therefore looks worse than
 the wrong scene aligned, so the quantity cannot distinguish the two failures and must not be
 thresholded as though it could. Misalignment is detected where it is actually measurable, by
 :func:`measure_registration`; the conflict fraction is reported for the confidence layer to

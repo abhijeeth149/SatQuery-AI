@@ -21,7 +21,7 @@ from typing import TYPE_CHECKING, ClassVar
 
 from ...core.errors import ErrorCode, ValidationError
 from ...core.types import InputMode, LandCoverClass, Modality, QueryTask
-from ...geospatial.align import align_to_reference
+from ...geospatial.align import align_to_reference, coregister
 from ...geospatial.raster import BandRole
 from ...geospatial.validate import (
     assess_quality,
@@ -136,19 +136,25 @@ class ChangeTool(Tool):
         pair = check_pair_compatibility(before, after)
         require_compatible(pair)  # raises GeospatialError on no / insufficient overlap
         aligned_after, report = align_to_reference(after, before, pair.strategy)
+        # Being on a common grid is not being aligned. Correct the residual misalignment before
+        # differencing, keeping the correction only if re-measuring shows it helped; `coreg.final`
+        # is the registration of the pair that is actually differenced below.
+        coreg = coregister(aligned_after, before)
         return Prepared(
-            rasters=[before, aligned_after],
+            rasters=[before, coreg.raster],
             quality=assess_quality(before),
             context={
-                "warnings": [*pair.warnings, *report.warnings],
+                "warnings": [*pair.warnings, *report.warnings, *coreg.warnings],
                 "compatibility": pair.to_dict(),
                 "alignment": report.to_dict(),
+                "coregistration": coreg.to_dict(),
+                "registration": coreg.final,
             },
         )
 
     def predict(self, prepared: Prepared) -> ChangeResult:
         before, after = prepared.rasters
-        return detect_change(before, after)
+        return detect_change(before, after, registration=prepared.context.get("registration"))
 
     def explain(self, raw: ChangeResult) -> list[str]:
         lines = [
@@ -158,17 +164,31 @@ class ChangeTool(Tool):
             f"Registration offset {raw.registration.offset_magnitude:.2f} px "
             f"(quality {raw.registration.score:.2f}).",
         ]
+        gate = raw.gate
+        lines.append(
+            f"Semantic-claim gate: {'passed' if gate.passed else 'not passed'} "
+            f"(needs offset <= {gate.thresholds['max_offset_px']:.1f} px, "
+            f"structural agreement >= {gate.thresholds['min_ncc']:.2f}, "
+            f"registration quality >= {gate.thresholds['min_score']:.2f})."
+        )
         if raw.changed_pixels:
             lines.append(
                 f"{raw.corroborated_fraction * 100:.0f}% of {raw.changed_pixels} changed pixels "
                 f"are corroborated by both detectors."
             )
+        # Named transitions are reported as *measurements* here regardless of the gate, and the
+        # gate verdict is stated alongside — evidence should show what was measured and why a
+        # conclusion was or was not drawn from it, not hide the measurement.
         dom = raw.dominant_transition()
         if dom is not None:
             lines.append(
-                f"Dominant transition {_pretty(dom.before)} to {_pretty(dom.after)} "
-                f"({dom.spectral_agreement * 100:.0f}% spectral agreement)."
+                f"Largest measured transition {_pretty(dom.before)} to {_pretty(dom.after)} "
+                f"({dom.spectral_agreement * 100:.0f}% spectral agreement, "
+                f"{'reportable' if raw.transition_is_reportable(dom) else 'withheld'} as a "
+                f"semantic finding)."
             )
+        if raw.semantic_withheld_reason:
+            lines.append(f"Semantic claim withheld: {raw.semantic_withheld_reason}")
         lines.extend(raw.warnings)
         return lines
 
@@ -178,9 +198,15 @@ class ChangeTool(Tool):
         # warnings (partial overlap, reprojection) are added here. dict.fromkeys dedups.
         extra = prepared.context.get("warnings", [])
         warnings = list(dict.fromkeys([*raw.warnings, *extra]))
+        data = raw.to_dict()
+        coreg = prepared.context.get("coregistration")
+        if coreg is not None:
+            # What was done about the misalignment, not merely what it measured — so the result
+            # page can show the correction and its measured effect rather than a bare final score.
+            data["coregistration"] = coreg
         return self.build_result(
             answer=self._summarize(raw),
-            data=raw.to_dict(),
+            data=data,
             confidence=report,
             evidence=self.explain(raw),
             warnings=warnings,
@@ -199,11 +225,23 @@ class ChangeTool(Tool):
         if raw.changed_area_m2 is not None:
             parts.append(f" (about {raw.changed_area_m2 / 1e6:.2f} km²)")
         parts.append(".")
-        dom = raw.dominant_transition()
-        if dom is not None:
+        # The named transition is a *conclusion drawn from* the measured difference, and is
+        # asserted only when the pair is registered well enough and the spectral detector
+        # independently corroborates that specific transition. Otherwise the sentence says the
+        # difference was measured and the interpretation withheld — it does not quietly drop the
+        # subject, because a reader who can see nine transitions in the table deserves to know
+        # why none of them is being named.
+        semantic = raw.semantic_transition()
+        if semantic is not None:
             parts.append(
-                f" The dominant transition is {_pretty(dom.before)} to {_pretty(dom.after)}, "
-                f"covering {dom.fraction_of_change * 100:.0f}% of the changed area."
+                f" The dominant transition is {_pretty(semantic.before)} to "
+                f"{_pretty(semantic.after)}, covering "
+                f"{semantic.fraction_of_change * 100:.0f}% of the changed area."
+            )
+        elif raw.semantic_withheld_reason:
+            parts.append(
+                " No specific land-cover conversion is claimed for that change: "
+                f"{raw.semantic_withheld_reason}"
             )
         parts.append(
             f" {raw.corroborated_fraction * 100:.0f}% of the detected change is corroborated by "

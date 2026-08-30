@@ -1,211 +1,174 @@
-"""Real inference wrapper for adapted remote-sensing models (§10).
+"""Load the trained checkpoint in a separate process and predict on unseen images.
 
-Loads a trained PyTorch checkpoint and runs actual forward passes.
-Never returns hardcoded confidence — all values come from the model's
-softmax/sigmoid outputs on the actual input.
+Deliberately independent of :mod:`ml.adaptation.train`: it imports nothing from the training module
+and rebuilds the architecture from the checkpoint's own recorded fields. That is what makes running
+this script a real verification that the saved weights load and predict, rather than a continuation
+of the training process that produced them.
 """
 from __future__ import annotations
 
+import argparse
 import json
+import sys
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-import numpy as np
-import torch
+from ..datasets.eurosat_adapter import (
+    DEFAULT_SUBSET_DIR,
+    build_transform,
+    load_image,
+    load_split,
+)
 
-from .prepare_data import BIGEARTHNET_19_CLASSES, NUM_BANDS, PATCH_SIZE
-from .train import RSAdapterModel
+DEFAULT_CHECKPOINT_DIR = Path("ml/checkpoints/satquery-rs-visual-v1")
+WEIGHTS_FILENAME = "model.pt"
+
+
+class CheckpointNotFoundError(FileNotFoundError):
+    """Raised when the adapted checkpoint has not been trained yet."""
+
+
+@dataclass(frozen=True)
+class ScenePrediction:
+    """One image's predicted land-use class and the full probability vector behind it."""
+
+    path: str
+    label: int
+    class_name: str
+    confidence: float
+    probabilities: dict[str, float]
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "path": self.path,
+            "label": self.label,
+            "class_name": self.class_name,
+            "confidence": round(self.confidence, 6),
+            "probabilities": {k: round(v, 6) for k, v in self.probabilities.items()},
+        }
 
 
 class AdaptedModelInference:
-    """Load and run predictions with a trained RS adapter checkpoint.
+    """The adapted EuroSAT scene classifier, loaded from disk and ready to predict.
 
-    If no checkpoint exists, ``is_loaded`` is False and ``predict_multilabel``
-    returns an honest empty result rather than fabricated confidence.
+    Construction loads the weights eagerly so a broken or missing checkpoint fails here rather than
+    inside a request. :meth:`predict` accepts a path or an already-opened PIL image.
     """
 
-    def __init__(self, checkpoint_dir: str | Path | None = None) -> None:
-        self.checkpoint_dir = Path(checkpoint_dir) if checkpoint_dir else None
-        self.model: RSAdapterModel | None = None
-        self.config: dict[str, Any] = {}
-        self.is_loaded = False
-        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    def __init__(self, checkpoint_dir: Path | str = DEFAULT_CHECKPOINT_DIR) -> None:
+        import torch
 
-        if self.checkpoint_dir and self.checkpoint_dir.exists():
-            self._load_checkpoint()
-
-    def _load_checkpoint(self) -> None:
-        """Load model weights from the best checkpoint."""
-        config_path = self.checkpoint_dir / "adapter_config.json"
-        if not config_path.exists():
-            return
-
-        with config_path.open("r", encoding="utf-8") as f:
-            self.config = json.load(f)
-
-        # Find best checkpoint
-        best_path = self.checkpoint_dir / "best_model.pt"
-        final_path = self.checkpoint_dir / "final_model.pt"
-        ckpt_path = best_path if best_path.exists() else final_path
-
-        if not ckpt_path.exists():
-            return
-
-        num_classes = self.config.get("num_classes", len(BIGEARTHNET_19_CLASSES))
-        lora_rank = self.config.get("lora_rank", 8) or 8
-        lora_alpha = self.config.get("lora_alpha", 16.0) or 16.0
-
-        self.model = RSAdapterModel(
-            num_classes=num_classes,
-            lora_rank=lora_rank,
-            lora_alpha=lora_alpha,
-        ).to(self.device)
-
-        checkpoint = torch.load(ckpt_path, map_location=self.device, weights_only=False)
-        self.model.load_state_dict(checkpoint["model_state_dict"])
-        self.model.eval()
-        self.is_loaded = True
-
-    def predict_multilabel(self, patch: np.ndarray, threshold: float = 0.5) -> dict[str, Any]:
-        """Run multi-label classification on a (C, H, W) numpy patch.
-
-        Args:
-            patch: Input array, shape (bands, H, W), float32 [0, 1].
-            threshold: Sigmoid threshold for positive label assignment.
-
-        Returns:
-            Dict with predicted labels, probabilities, and confidence.
-        """
-        if not self.is_loaded or self.model is None:
-            return {
-                "predicted_labels": [],
-                "probabilities": {},
-                "confidence": 0.0,
-                "used_adapted_checkpoint": False,
-                "error": "No trained checkpoint loaded.",
-            }
-
-        # Preprocess: resize if needed, normalize
-        if patch.shape[0] != NUM_BANDS:
-            # Pad or truncate bands
-            padded = np.zeros((NUM_BANDS, patch.shape[1], patch.shape[2]), dtype=np.float32)
-            n_copy = min(patch.shape[0], NUM_BANDS)
-            padded[:n_copy] = patch[:n_copy]
-            patch = padded
-
-        # Resize to expected patch size
-        if patch.shape[1] != PATCH_SIZE or patch.shape[2] != PATCH_SIZE:
-            import cv2
-            resized = np.zeros((NUM_BANDS, PATCH_SIZE, PATCH_SIZE), dtype=np.float32)
-            for b in range(NUM_BANDS):
-                resized[b] = cv2.resize(patch[b], (PATCH_SIZE, PATCH_SIZE), interpolation=cv2.INTER_LINEAR)
-            patch = resized
-
-        # Normalize
-        mean = np.array([0.12, 0.14, 0.15, 0.28, 0.22, 0.18], dtype=np.float32).reshape(-1, 1, 1)
-        std = np.array([0.05, 0.05, 0.06, 0.08, 0.07, 0.06], dtype=np.float32).reshape(-1, 1, 1)
-        patch = (patch - mean) / (std + 1e-8)
-
-        # Forward pass
-        with torch.no_grad():
-            tensor = torch.from_numpy(patch).unsqueeze(0).to(self.device)
-            logits = self.model(tensor)
-            probs = torch.sigmoid(logits).cpu().numpy()[0]
-
-        # Extract predictions
-        predicted_indices = np.where(probs > threshold)[0].tolist()
-        predicted_labels = [BIGEARTHNET_19_CLASSES[i] for i in predicted_indices]
-
-        # Confidence is the mean probability of predicted classes
-        if predicted_indices:
-            confidence = float(np.mean(probs[predicted_indices]))
-        else:
-            # No class predicted — report the max probability as confidence
-            confidence = float(np.max(probs))
-
-        probabilities = {
-            BIGEARTHNET_19_CLASSES[i]: round(float(probs[i]), 4)
-            for i in range(len(BIGEARTHNET_19_CLASSES))
-            if probs[i] > 0.1  # Only report classes with >10% probability
-        }
-
-        return {
-            "predicted_labels": predicted_labels,
-            "predicted_indices": predicted_indices,
-            "probabilities": probabilities,
-            "confidence": round(confidence, 4),
-            "threshold": threshold,
-            "used_adapted_checkpoint": True,
-            "checkpoint": str(self.checkpoint_dir),
-            "model_config": {
-                "base_model": self.config.get("base_model"),
-                "adaptation_method": self.config.get("adaptation_method"),
-                "best_val_f1": self.config.get("best_val_f1"),
-            },
-        }
-
-    def predict_vqa(self, image_path: str | Path, question: str) -> dict[str, Any]:
-        """Answer a VQA question using the adapted model's classification output.
-
-        Translates multi-label predictions into a natural-language answer
-        grounded in the model's actual outputs.
-        """
-        if not self.is_loaded:
-            return {
-                "answer": "No adapted model checkpoint available. Using deterministic analysis.",
-                "confidence": 0.0,
-                "used_adapted_checkpoint": False,
-            }
-
-        # Load and preprocess image
-        try:
-            image = np.load(image_path) if str(image_path).endswith(".npy") else self._load_image(image_path)
-        except Exception:
-            return {
-                "answer": "Could not load image for adapted model inference.",
-                "confidence": 0.0,
-                "used_adapted_checkpoint": False,
-            }
-
-        result = self.predict_multilabel(image)
-
-        if result["predicted_labels"]:
-            labels_str = ", ".join(result["predicted_labels"])
-            answer = f"Adapted model identifies: {labels_str}."
-        else:
-            answer = "Adapted model could not confidently classify this scene."
-
-        return {
-            "answer": answer,
-            "confidence": result["confidence"],
-            "predicted_labels": result["predicted_labels"],
-            "probabilities": result.get("probabilities", {}),
-            "used_adapted_checkpoint": True,
-        }
+        self.checkpoint_dir = Path(checkpoint_dir)
+        weights_path = self.checkpoint_dir / WEIGHTS_FILENAME
+        if not weights_path.is_file():
+            raise CheckpointNotFoundError(
+                f"No adapted checkpoint at {weights_path}. Run "
+                "`python -m ml.adaptation.train` to produce one."
+            )
+        payload = torch.load(weights_path, map_location="cpu", weights_only=True)
+        self.checkpoint_path = weights_path
+        self.model_id: str = payload.get("model_id", "unknown")
+        self.class_names: list[str] = list(payload["class_names"])
+        self.architecture: str = payload.get("architecture", "resnet18")
+        self.pretrained_weights: str = payload.get("pretrained_weights", "unknown")
+        self.adaptation_method: str = payload.get("adaptation_method", "unknown")
+        self.trained_epoch: int | None = payload.get("epoch")
+        self._model = self._build(len(self.class_names))
+        self._model.load_state_dict(payload["state_dict"])
+        self._model.eval()
+        self._transform = build_transform(train=False)
 
     @staticmethod
-    def _load_image(path: str | Path) -> np.ndarray:
-        """Load a raster image and return as (C, H, W) float32 [0, 1]."""
-        path = Path(path)
-        if path.suffix.lower() in (".tif", ".tiff"):
-            try:
-                import rasterio
-                with rasterio.open(path) as src:
-                    data = src.read().astype(np.float32)
-                    # Normalize assuming uint16 surface reflectance
-                    if data.max() > 1.0:
-                        data = data / 10000.0
-                    return np.clip(data, 0.0, 1.0)
-            except ImportError:
-                pass
+    def _build(num_classes: int) -> Any:
+        """Rebuild the architecture the checkpoint was trained with.
 
-        # Fallback: try as regular image
-        import cv2
-        img = cv2.imread(str(path), cv2.IMREAD_UNCHANGED)
-        if img is None:
-            raise ValueError(f"Could not read image: {path}")
-        if img.ndim == 2:
-            img = img[np.newaxis, ...]
-        elif img.ndim == 3:
-            img = img.transpose(2, 0, 1)  # HWC → CHW
-        return img.astype(np.float32) / (255.0 if img.max() <= 255 else 10000.0)
+        ``weights=None`` here on purpose: the pretrained values are already inside the checkpoint's
+        state dict, so downloading ImageNet weights just to overwrite them would be wasted I/O.
+        """
+        import torch.nn as nn
+        from torchvision.models import resnet18
+
+        model = resnet18(weights=None)
+        model.fc = nn.Linear(model.fc.in_features, num_classes)
+        return model
+
+    def predict(self, image: Path | str | Any) -> ScenePrediction:
+        """Classify one image. ``image`` may be a path or a PIL image."""
+        import torch
+
+        source = str(image) if isinstance(image, (str, Path)) else "<in-memory image>"
+        pil = load_image(image) if isinstance(image, (str, Path)) else image.convert("RGB")
+        tensor = self._transform(pil).unsqueeze(0)
+        with torch.no_grad():
+            probs = torch.softmax(self._model(tensor), dim=1)[0]
+        label = int(probs.argmax().item())
+        return ScenePrediction(
+            path=source,
+            label=label,
+            class_name=self.class_names[label],
+            confidence=float(probs[label].item()),
+            probabilities={
+                name: float(probs[i].item()) for i, name in enumerate(self.class_names)
+            },
+        )
+
+    def describe(self) -> dict[str, Any]:
+        """What ran, for a trace or a report — every field read from the checkpoint itself."""
+        return {
+            "model_id": self.model_id,
+            "checkpoint": self.checkpoint_path.as_posix(),
+            "architecture": self.architecture,
+            "pretrained_weights": self.pretrained_weights,
+            "adaptation_method": self.adaptation_method,
+            "trained_epoch": self.trained_epoch,
+            "num_classes": len(self.class_names),
+            "class_names": list(self.class_names),
+        }
+
+
+def _main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(
+        description="Load the adapted checkpoint and predict on held-out EuroSAT test images."
+    )
+    parser.add_argument("--checkpoint_dir", type=str, default=str(DEFAULT_CHECKPOINT_DIR))
+    parser.add_argument("--subset_dir", type=str, default=str(DEFAULT_SUBSET_DIR))
+    parser.add_argument("--num_samples", type=int, default=8)
+    parser.add_argument(
+        "--image", type=str, default=None,
+        help="Classify this single image instead of sampling the held-out test split.",
+    )
+    args = parser.parse_args(argv)
+
+    engine = AdaptedModelInference(args.checkpoint_dir)
+    print("=" * 68)
+    print("  SatQuery AI - adapted remote-sensing visual model, inference check")
+    print("=" * 68)
+    print(json.dumps(engine.describe(), indent=2))
+    print("-" * 68)
+
+    if args.image:
+        prediction = engine.predict(args.image)
+        print(f"  {prediction.class_name}  ({prediction.confidence * 100:.1f}%)  "
+              f"<- {prediction.path}")
+        print("=" * 68)
+        return 0
+
+    # These come from the recorded test split, so by construction none were seen during training.
+    samples = load_split("test", args.subset_dir)[: max(args.num_samples, 0)]
+    correct = 0
+    for sample in samples:
+        prediction = engine.predict(sample.path)
+        hit = prediction.label == sample.label
+        correct += int(hit)
+        print(f"  {'OK ' if hit else 'MISS'}  truth={sample.class_name:<21}"
+              f" predicted={prediction.class_name:<21} p={prediction.confidence * 100:5.1f}%")
+    print("-" * 68)
+    print(f"  {correct}/{len(samples)} correct on this unseen sample "
+          "(not the full evaluation; run `python -m ml.adaptation.evaluate` for that)")
+    print("=" * 68)
+    return 0
+
+
+if __name__ == "__main__":  # pragma: no cover - CLI entry point
+    sys.exit(_main())

@@ -107,6 +107,59 @@
     "reservoir shrinkage (water -> bare soil)",
     "newly irrigated cropland in the south (bare soil -> vegetation)"
   ],
+  "preferred_bitemporal_input": {
+    "path": "temporal_reliable/reservoir_t1_optical.tif + temporal_reliable/reservoir_t2_optical.tif",
+    "why": "Both dates are 6-band GeoTIFFs with an explicit CRS, transform and bounds on one identical grid, so registration is sub-pixel, ground areas are real, and the one conversion present is corroborated independently by both change detectors.",
+    "avoid": "PNG or otherwise ungeoreferenced input. It carries no CRS, transform or NIR band, so no vegetation or water index exists, change falls back to raw-band differencing, extent can only be reported in pixels, and no land-cover conversion can be attributed to the ground. See temporal_unreliable/ for that case."
+  },
+  "reliable_pair": {
+    "note": "The high-quality bi-temporal case: georeferenced, co-registered, with one spectrally unambiguous conversion (cropland and bare soil to water) that both the spectral and land-cover detectors resolve independently.",
+    "before": "temporal_reliable/reservoir_t1_optical.tif",
+    "after": "temporal_reliable/reservoir_t2_optical.tif",
+    "change_mask": "temporal_reliable/reservoir_change_gt.tif",
+    "known_change": "reservoir impoundment floods the valley floor",
+    "t1_class_pixels": {
+      "water": 17780,
+      "vegetation": 147768,
+      "built_up": 75336,
+      "bare_soil": 21260
+    },
+    "t2_class_pixels": {
+      "water": 28553,
+      "vegetation": 138345,
+      "built_up": 75336,
+      "bare_soil": 19910
+    },
+    "changed_pixels": 10773,
+    "changed_area_m2": 1077300.0,
+    "changed_fraction": 0.041095733642578125,
+    "transition_pixels": {
+      "vegetation->water": 9423,
+      "bare_soil->water": 1350
+    }
+  },
+  "unreliable_pair": {
+    "note": "The safety case: the same ground, but the later date is rotated 4 degrees and shifted about 60 px, and neither file carries a CRS or transform. The rotation is deliberate \u2014 translation-only co-registration cannot remove it \u2014 so the registration gate must fail and the pipeline must report the measured pixel difference while withholding any named land-cover conversion.",
+    "geotiff_pair": [
+      "temporal_unreliable/pair_t1.tif",
+      "temporal_unreliable/pair_t2.tif"
+    ],
+    "png_pair": [
+      "temporal_unreliable/pair_t1.png",
+      "temporal_unreliable/pair_t2.png"
+    ],
+    "defects": [
+      "no CRS and identity transform (not a map)",
+      "later date rotated 4 degrees about the centre and shifted (48, -36) px",
+      "PNG variant is 8-bit RGB only, so NDVI/NDWI/NDBI cannot be computed"
+    ],
+    "files": [
+      "pair_t1.tif",
+      "pair_t2.tif",
+      "pair_t1.png",
+      "pair_t2.png"
+    ]
+  },
   "edge_cases": [
     "empty.tif",
     "corrupt.tif",

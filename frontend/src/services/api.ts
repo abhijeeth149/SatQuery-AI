@@ -16,10 +16,12 @@ import type {
   HealthStatus,
   InputMeta,
   InputMode,
+  LegendEntry,
   Metrics,
   Modality,
   ToolTier,
   TraceStep,
+  Wgs84Bounds,
 } from '@/types/api'
 import { MODALITIES } from '@/types/api'
 import { MODALITY_HINT_BY_SLOT_ROLE, MODE_SLOTS } from '@/lib/uploads'
@@ -217,6 +219,93 @@ function asModality(value: string | null | undefined): Modality {
   return MODALITIES.find((m) => m === value) ?? 'unknown'
 }
 
+/** One rendered PNG as the backend publishes it (`ArtifactSchema`). */
+interface BackendArtifact {
+  kind: string
+  label: string
+  url: string
+  bounds_wgs84: Wgs84Bounds | null
+  legend: LegendEntry[]
+}
+
+/** Per-input raster metadata as the backend publishes it (`InputMetaSchema`). */
+interface BackendInputMeta {
+  filename: string
+  driver: string
+  width: number
+  height: number
+  bands: number
+  dtype: string
+  crs: string | null
+  crs_epsg: number | null
+  transform: number[] | null
+  bounds: number[] | null
+  nodata: number | null
+  pixel_size: number[] | null
+  georeferenced: boolean
+  band_descriptions: Array<string | null>
+  decimation: number
+  modality: string
+  band_roles: string[]
+  bounds_wgs84: Wgs84Bounds | null
+}
+
+/**
+ * The imagery the backend rendered for this run — its base composite and the task's own overlay.
+ *
+ * Both mappers below used to hardcode `artifacts: []`, which is why a live result page showed "No
+ * rendered imagery for this analysis." even for a run that had classified every pixel: the backend
+ * now renders and publishes the PNGs, and this reads them. An empty list stays empty — a run whose
+ * overlay genuinely failed to render says so in its warnings, and nothing is substituted for it.
+ *
+ * `bounds_wgs84` passes through unchanged, including its null: `result-map.tsx` reads null as "show
+ * this in a plain pixel viewer" rather than placing an ungeoreferenced image on a map (§8).
+ */
+function mapArtifacts(raw: BackendArtifact[] | undefined): Artifact[] {
+  return (raw ?? []).map((a) => ({
+    kind: a.kind,
+    label: a.label,
+    url: a.url,
+    bounds_wgs84: a.bounds_wgs84 ?? null,
+    legend: a.legend ?? [],
+  }))
+}
+
+/** `[x, y]` ground sample distance, or null for a raster with no transform to derive it from. */
+function asPixelSize(value: number[] | null | undefined): [number, number] | null {
+  return value && value.length >= 2 ? [value[0], value[1]] : null
+}
+
+/**
+ * The rasters the analysis actually read, as it read them.
+ *
+ * This is the raster's own header — the driver, transform, nodata, band roles and decimation the
+ * loader resolved — which the upload response does not carry. The Inputs panel previously had to
+ * make do with the upload metadata (and, on reload, with nothing at all).
+ */
+function mapInputs(raw: BackendInputMeta[] | undefined): InputMeta[] {
+  return (raw ?? []).map((m) => ({
+    filename: m.filename,
+    driver: m.driver,
+    width: m.width,
+    height: m.height,
+    bands: m.bands,
+    dtype: m.dtype,
+    crs: m.crs,
+    crs_epsg: m.crs_epsg,
+    transform: m.transform,
+    bounds: m.bounds,
+    nodata: m.nodata,
+    pixel_size: asPixelSize(m.pixel_size),
+    georeferenced: m.georeferenced,
+    band_descriptions: m.band_descriptions ?? [],
+    decimation: m.decimation ?? 1.0,
+    modality: asModality(m.modality),
+    band_roles: m.band_roles ?? [],
+    bounds_wgs84: m.bounds_wgs84 ?? null,
+  }))
+}
+
 /**
  * The backend's own confidence report, or — for a row persisted before that report was published —
  * the two fields it does carry and nothing more.
@@ -270,8 +359,33 @@ function mapConfidence(
   }
 }
 
+/** How an analysis id should be resolved when both a recording and a live run could claim it. */
+export interface GetAnalysisOptions {
+  /**
+   * Open the shipped recording for this id rather than asking the backend.
+   *
+   * The dashboard's "View example" links advertise one specific recorded case each, and the backend
+   * mints its own ids from the same `SAT-2026-NNNNNN` sequence — so on a machine that has run more
+   * than a hundred analyses, the six recorded ids also exist in its database as unrelated live runs.
+   * Resolving live-first therefore opened the wrong analysis entirely: the "Optical scene analysis"
+   * example showed a fusion answer to a different question, and showed no imagery, because rows
+   * recorded before artifacts were persisted carry none. A link that means "the recording" says so.
+   */
+  recorded?: boolean
+}
+
 /** Full analysis envelope by id. */
-export async function getAnalysis(id: string): Promise<AnalysisResult> {
+export async function getAnalysis(
+  id: string,
+  opts: GetAnalysisOptions = {},
+): Promise<AnalysisResult> {
+  // A recorded case is asked for by name, so it is answered from the recording — ahead of both the
+  // live-session cache and the backend, either of which may hold a different run under the same id.
+  if (opts.recorded) {
+    const recorded = await loadFixture(id)
+    if (recorded) return recorded
+  }
+
   // Check live session cache first
   if (liveSessionAnalyses.has(id)) {
     return liveSessionAnalyses.get(id)!
@@ -325,6 +439,8 @@ export async function getAnalysis(id: string): Promise<AnalysisResult> {
         data: any
         duration_ms?: number | null
         warnings: string[]
+        artifacts?: BackendArtifact[]
+        inputs?: BackendInputMeta[]
         created_at: string
       }
       const raw = await fetchJson<BackendAnalysisDetail>(`/api/analysis/${encodeURIComponent(id)}`)
@@ -351,7 +467,10 @@ export async function getAnalysis(id: string): Promise<AnalysisResult> {
         evidence: raw.evidence,
         warnings: raw.warnings ?? [],
         data: (raw.data ?? {}) as AnalysisData,
-        inputs: [],
+        // Read back from the run's own stored record, so a reloaded page keeps the imagery and the
+        // input headers it was first shown with. Both were hardcoded empty here, which is what made
+        // the Imagery and Inputs panels come up blank on every reload.
+        inputs: mapInputs(raw.inputs),
         trace: (raw.execution_trace?.steps ?? []).map((s) => ({
           step: s.step_name as any,
           tool: s.tool_name,
@@ -363,7 +482,7 @@ export async function getAnalysis(id: string): Promise<AnalysisResult> {
           parameters: {},
           warnings: s.warnings ?? [],
         })),
-        artifacts: [],
+        artifacts: mapArtifacts(raw.artifacts),
         fixture: false,
       }
       liveSessionAnalyses.set(id, mapped)
@@ -478,6 +597,10 @@ export async function analyze(req: AnalyzeRequest): Promise<AnalysisResult> {
     }
     data: any
     warnings: string[]
+    /** Rendered by the analysis from its own arrays: the base composite plus the task's overlay. */
+    artifacts?: BackendArtifact[]
+    /** The rasters the analysis read, with the headers the loader resolved. */
+    inputs?: BackendInputMeta[]
     created_at: string
   }
 
@@ -490,8 +613,15 @@ export async function analyze(req: AnalyzeRequest): Promise<AnalysisResult> {
     }),
   })
 
-  // 3. Build artifacts & inputs
-  const inputs: InputMeta[] = uploadedMeta.map((u) => ({
+  // 3. Imagery and input headers: the analysis's own where it published them, the upload's otherwise.
+  //
+  //    The analysis renders a base composite *and* the task's overlay from the arrays it produced,
+  //    and reports each raster as it actually read it — post-decimation, with the transform, nodata
+  //    and band roles the loader resolved. The upload response can supply neither: it knows only a
+  //    thumbnail per file and the few header fields the upload endpoint echoes back. So the run's own
+  //    values win, and these upload-derived lists stay as the fallback for a backend that publishes
+  //    none.
+  const uploadedInputs: InputMeta[] = uploadedMeta.map((u) => ({
     filename: u.filename,
     driver: 'GTiff',
     width: u.width,
@@ -515,13 +645,18 @@ export async function analyze(req: AnalyzeRequest): Promise<AnalysisResult> {
     bounds_wgs84: null,
   }))
 
-  const artifacts: Artifact[] = uploadedMeta.map((u) => ({
+  const uploadPreviews: Artifact[] = uploadedMeta.map((u) => ({
     kind: 'base',
     label: u.filename,
     url: u.preview_url,
     bounds_wgs84: null,
     legend: [],
   }))
+
+  const renderedArtifacts = mapArtifacts(raw.artifacts)
+  const artifacts = renderedArtifacts.length > 0 ? renderedArtifacts : uploadPreviews
+  const analysisInputs = mapInputs(raw.inputs)
+  const inputs = analysisInputs.length > 0 ? analysisInputs : uploadedInputs
 
   const traceSteps: TraceStep[] = (raw.execution_trace?.steps ?? []).map((s) => ({
     step: s.step_name as any,

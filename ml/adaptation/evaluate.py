@@ -1,190 +1,177 @@
-"""Real post-adaptation evaluation with actual model inference (§10, §27).
+"""Remote-sensing adaptation evaluation: measure the adapted model on the held-out test split.
 
-Loads the trained checkpoint, runs inference on the test split,
-and computes real metrics from actual predictions vs ground truth.
-Never reports hardcoded numbers.
+This is *not* the SIH benchmark. No prescribed benchmark was run, so nothing here is labelled as
+one. What it reports is exactly what it measures: top-1 accuracy, per-class accuracy and a
+confusion matrix over the EuroSAT test images recorded in the subset manifest — images drawn from
+disjoint slices of each class's permutation, so none of them appear in the training or validation
+splits.
+
+The confusion matrix is computed with numpy rather than scikit-learn, which is not a dependency of
+this project.
 """
 from __future__ import annotations
 
 import argparse
 import json
+import sys
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-import numpy as np
-import torch
-from torch.utils.data import DataLoader
+from ..datasets.eurosat_adapter import DEFAULT_SUBSET_DIR, load_manifest, load_split
+from .inference import DEFAULT_CHECKPOINT_DIR, AdaptedModelInference
 
-from .prepare_data import BIGEARTHNET_19_CLASSES
-from .train import BigEarthNetDataset, RSAdapterModel
+EVALUATION_FILENAME = "evaluation.json"
+METADATA_FILENAME = "metadata.json"
+
+#: The label the brief requires. Kept as a constant so no caller can rename it in passing.
+EVALUATION_LABEL = "Remote-sensing adaptation evaluation"
+
+
+def confusion_matrix(truth: list[int], predicted: list[int], num_classes: int) -> list[list[int]]:
+    """Rows are true classes, columns predicted — ``matrix[i][j]`` counts true ``i`` called ``j``."""
+    import numpy as np
+
+    matrix = np.zeros((num_classes, num_classes), dtype=np.int64)
+    for t, p in zip(truth, predicted, strict=True):
+        matrix[t, p] += 1
+    return matrix.tolist()
 
 
 def evaluate_adapted_model(
-    checkpoint_dir: str | Path = "ml/checkpoints/satquery_adapted",
-    dataset_dir: str | Path = "ml/datasets/processed",
-    test_split: str = "test",
-    batch_size: int = 32,
-    threshold: float = 0.5,
+    *,
+    checkpoint_dir: Path | str = DEFAULT_CHECKPOINT_DIR,
+    subset_dir: Path | str = DEFAULT_SUBSET_DIR,
+    split: str = "test",
+    limit: int | None = None,
 ) -> dict[str, Any]:
-    """Evaluate fine-tuned model checkpoint on test dataset with real metrics.
+    """Run the adapted model over the held-out split and write ``evaluation.json``.
 
-    Returns actual computed accuracy, F1, precision, recall from the model's
-    predictions — nothing hardcoded.
+    Also fills in ``test_accuracy`` / ``test_evaluation`` in the checkpoint's ``metadata.json``,
+    which :mod:`ml.adaptation.train` deliberately leaves ``null`` — so that field is only ever
+    populated by a measurement.
+
+    Returns the evaluation report.
     """
     checkpoint_dir = Path(checkpoint_dir)
-    dataset_dir = Path(dataset_dir)
+    engine = AdaptedModelInference(checkpoint_dir)
+    samples = load_split(split, subset_dir)
+    if limit is not None:
+        samples = samples[:limit]
+    if not samples:
+        raise RuntimeError(f"The {split!r} split is empty; nothing to evaluate.")
 
-    print("=" * 60)
-    print("  SatQuery AI — Adapted Model Evaluation (REAL)")
-    print("=" * 60)
+    class_names = engine.class_names
+    # Dataset provenance, read from the subset manifest rather than restated here, so the report
+    # names the data that actually produced these images.
+    manifest = load_manifest(subset_dir)
+    truth: list[int] = []
+    predicted: list[int] = []
+    for sample in samples:
+        prediction = engine.predict(sample.path)
+        truth.append(sample.label)
+        predicted.append(prediction.label)
 
-    # Load config
-    config_file = checkpoint_dir / "adapter_config.json"
-    if not config_file.exists():
-        print(f"  [Warning] No checkpoint config at {config_file}")
-        return _empty_result(checkpoint_dir, "No checkpoint found")
+    correct = sum(1 for t, p in zip(truth, predicted, strict=True) if t == p)
+    matrix = confusion_matrix(truth, predicted, len(class_names))
+    per_class = {}
+    for i, name in enumerate(class_names):
+        support = sum(matrix[i])
+        per_class[name] = {
+            "support": support,
+            "correct": matrix[i][i],
+            "accuracy": round(matrix[i][i] / support, 6) if support else None,
+        }
 
-    with config_file.open("r", encoding="utf-8") as f:
-        config = json.load(f)
-
-    # Load model
-    best_path = checkpoint_dir / "best_model.pt"
-    final_path = checkpoint_dir / "final_model.pt"
-    ckpt_path = best_path if best_path.exists() else final_path
-
-    if not ckpt_path.exists():
-        print(f"  [Warning] No model weights at {ckpt_path}")
-        return _empty_result(checkpoint_dir, "No model weights found")
-
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    num_classes = config.get("num_classes", len(BIGEARTHNET_19_CLASSES))
-
-    model = RSAdapterModel(
-        num_classes=num_classes,
-        lora_rank=config.get("lora_rank", 8) or 8,
-        lora_alpha=config.get("lora_alpha", 16.0) or 16.0,
-    ).to(device)
-
-    checkpoint = torch.load(ckpt_path, map_location=device, weights_only=False)
-    model.load_state_dict(checkpoint["model_state_dict"])
-    model.eval()
-
-    # Load test dataset
-    try:
-        test_dataset = BigEarthNetDataset(dataset_dir, split=test_split)
-    except FileNotFoundError:
-        print(f"  [Warning] Test split not found in {dataset_dir}")
-        return _empty_result(checkpoint_dir, f"Test split '{test_split}' not found")
-
-    test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
-
-    print(f"  Checkpoint:    {ckpt_path.name}")
-    print(f"  Dataset:       {dataset_dir}")
-    print(f"  Test samples:  {len(test_dataset)}")
-    print(f"  Device:        {device}")
-    print("-" * 60)
-
-    # Run inference and collect predictions
-    all_preds: list[np.ndarray] = []
-    all_targets: list[np.ndarray] = []
-
-    with torch.no_grad():
-        for batch_patches, batch_labels in test_loader:
-            batch_patches = batch_patches.to(device)
-            logits = model(batch_patches)
-            probs = torch.sigmoid(logits).cpu().numpy()
-            preds = (probs > threshold).astype(np.float32)
-            all_preds.append(preds)
-            all_targets.append(batch_labels.numpy())
-
-    preds_arr = np.concatenate(all_preds, axis=0)
-    targets_arr = np.concatenate(all_targets, axis=0)
-    n_samples = preds_arr.shape[0]
-
-    # Compute real metrics
-    # Overall accuracy (element-wise)
-    element_acc = float(np.mean(preds_arr == targets_arr))
-
-    # Sample-level exact match
-    exact_match = float(np.mean(np.all(preds_arr == targets_arr, axis=1)))
-
-    # Micro-averaged precision, recall, F1
-    tp = float(np.sum((preds_arr == 1) & (targets_arr == 1)))
-    fp = float(np.sum((preds_arr == 1) & (targets_arr == 0)))
-    fn = float(np.sum((preds_arr == 0) & (targets_arr == 1)))
-
-    micro_precision = tp / (tp + fp) if (tp + fp) > 0 else 0.0
-    micro_recall = tp / (tp + fn) if (tp + fn) > 0 else 0.0
-    micro_f1 = 2 * micro_precision * micro_recall / (micro_precision + micro_recall) if (micro_precision + micro_recall) > 0 else 0.0
-
-    # Per-class F1
-    per_class_f1: dict[str, float] = {}
-    for c in range(num_classes):
-        c_tp = float(np.sum((preds_arr[:, c] == 1) & (targets_arr[:, c] == 1)))
-        c_fp = float(np.sum((preds_arr[:, c] == 1) & (targets_arr[:, c] == 0)))
-        c_fn = float(np.sum((preds_arr[:, c] == 0) & (targets_arr[:, c] == 1)))
-        c_prec = c_tp / (c_tp + c_fp) if (c_tp + c_fp) > 0 else 0.0
-        c_rec = c_tp / (c_tp + c_fn) if (c_tp + c_fn) > 0 else 0.0
-        c_f1 = 2 * c_prec * c_rec / (c_prec + c_rec) if (c_prec + c_rec) > 0 else 0.0
-        if c < len(BIGEARTHNET_19_CLASSES):
-            per_class_f1[BIGEARTHNET_19_CLASSES[c]] = round(c_f1, 4)
-
-    mean_f1 = float(np.mean(list(per_class_f1.values()))) if per_class_f1 else 0.0
-
-    results = {
-        "checkpoint": str(checkpoint_dir),
-        "checkpoint_file": ckpt_path.name,
-        "base_model": config.get("base_model"),
-        "adaptation_method": config.get("adaptation_method"),
-        "test_split": test_split,
-        "sample_count": n_samples,
-        "threshold": threshold,
-        "metrics": {
-            "element_accuracy": round(element_acc, 4),
-            "exact_match": round(exact_match, 4),
-            "micro_precision": round(micro_precision, 4),
-            "micro_recall": round(micro_recall, 4),
-            "micro_f1": round(micro_f1, 4),
-            "mean_per_class_f1": round(mean_f1, 4),
-        },
-        "per_class_f1": per_class_f1,
-        "training_best_val_f1": config.get("best_val_f1"),
-        "is_simulated": False,
+    report: dict[str, Any] = {
+        "evaluation": EVALUATION_LABEL,
+        "is_sih_benchmark": False,
+        "note": (
+            "Top-1 accuracy of the adapted EuroSAT scene classifier on its own held-out test "
+            "split. This is not the SIH prescribed benchmark, which was not run."
+        ),
+        "model_id": engine.model_id,
+        "checkpoint": engine.checkpoint_path.as_posix(),
+        "base_model": engine.architecture,
+        "pretrained_weights": engine.pretrained_weights,
+        "adaptation_method": engine.adaptation_method,
+        "dataset": manifest["dataset"],
+        "dataset_source": manifest["source_url"],
+        "dataset_is_synthetic": manifest["is_synthetic"],
+        "split": split,
+        "num_test_samples": len(samples),
+        "num_correct": correct,
+        "test_accuracy": round(correct / len(samples), 6),
+        "class_names": list(class_names),
+        "per_class": per_class,
+        "confusion_matrix": matrix,
+        "confusion_matrix_orientation": "rows = true class, columns = predicted class",
+        "timestamp": datetime.now(UTC).isoformat(timespec="seconds"),
     }
 
-    print(f"  Element Accuracy:    {element_acc * 100:.2f}%")
-    print(f"  Exact Match:         {exact_match * 100:.2f}%")
-    print(f"  Micro Precision:     {micro_precision:.4f}")
-    print(f"  Micro Recall:        {micro_recall:.4f}")
-    print(f"  Micro F1:            {micro_f1:.4f}")
-    print(f"  Mean Per-Class F1:   {mean_f1:.4f}")
-    print("-" * 60)
+    (checkpoint_dir / EVALUATION_FILENAME).write_text(
+        json.dumps(report, indent=2), encoding="utf-8"
+    )
 
-    return results
+    metadata_path = checkpoint_dir / METADATA_FILENAME
+    if metadata_path.is_file():
+        metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+        metadata["test_accuracy"] = report["test_accuracy"]
+        metadata["test_evaluation"] = {
+            "label": EVALUATION_LABEL,
+            "num_test_samples": report["num_test_samples"],
+            "num_correct": correct,
+            "timestamp": report["timestamp"],
+        }
+        metadata_path.write_text(json.dumps(metadata, indent=2), encoding="utf-8")
 
-
-def _empty_result(checkpoint_dir: Path, reason: str) -> dict[str, Any]:
-    """Return an honest empty result when evaluation cannot proceed."""
-    return {
-        "checkpoint": str(checkpoint_dir),
-        "error": reason,
-        "sample_count": 0,
-        "metrics": {
-            "element_accuracy": 0.0,
-            "exact_match": 0.0,
-            "micro_precision": 0.0,
-            "micro_recall": 0.0,
-            "micro_f1": 0.0,
-            "mean_per_class_f1": 0.0,
-        },
-        "is_simulated": False,
-    }
+    return report
 
 
-if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Evaluate Adapted RS Model (Real)")
-    parser.add_argument("--checkpoint_dir", type=str, default="ml/checkpoints/satquery_adapted")
-    parser.add_argument("--dataset_dir", type=str, default="ml/datasets/processed")
-    parser.add_argument("--split", type=str, default="test")
-    args = parser.parse_args()
-    evaluate_adapted_model(args.checkpoint_dir, args.dataset_dir, args.split)
+def _print_report(report: dict[str, Any]) -> None:
+    names = report["class_names"]
+    width = max(len(n) for n in names)
+    print("=" * 68)
+    print(f"  {report['evaluation']}")
+    print("=" * 68)
+    print(f"  model:       {report['model_id']}")
+    print(f"  checkpoint:  {report['checkpoint']}")
+    print(f"  method:      {report['adaptation_method']}")
+    print(f"  split:       {report['split']} ({report['num_test_samples']} unseen images)")
+    print(f"  top-1 accuracy: {report['test_accuracy'] * 100:.2f}% "
+          f"({report['num_correct']}/{report['num_test_samples']})")
+    print("-" * 68)
+    print("  per-class accuracy:")
+    for name in names:
+        stats = report["per_class"][name]
+        acc = "n/a" if stats["accuracy"] is None else f"{stats['accuracy'] * 100:5.1f}%"
+        print(f"    {name:<{width}}  {acc}  ({stats['correct']}/{stats['support']})")
+    print("-" * 68)
+    print("  confusion matrix (rows = true, columns = predicted):")
+    print("    " + " ".join(f"{i:>4}" for i in range(len(names))))
+    for i, row in enumerate(report["confusion_matrix"]):
+        print(f"  {i:>2}" + " ".join(f"{v:>4}" for v in row) + f"   {names[i]}")
+    print("=" * 68)
+
+
+def _main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description=EVALUATION_LABEL)
+    parser.add_argument("--checkpoint_dir", type=str, default=str(DEFAULT_CHECKPOINT_DIR))
+    parser.add_argument("--subset_dir", type=str, default=str(DEFAULT_SUBSET_DIR))
+    parser.add_argument("--split", type=str, default="test", choices=("train", "val", "test"))
+    parser.add_argument("--limit", type=int, default=None)
+    args = parser.parse_args(argv)
+
+    report = evaluate_adapted_model(
+        checkpoint_dir=args.checkpoint_dir,
+        subset_dir=args.subset_dir,
+        split=args.split,
+        limit=args.limit,
+    )
+    _print_report(report)
+    print(f"  written to {Path(args.checkpoint_dir) / EVALUATION_FILENAME}")
+    return 0
+
+
+if __name__ == "__main__":  # pragma: no cover - CLI entry point
+    sys.exit(_main())

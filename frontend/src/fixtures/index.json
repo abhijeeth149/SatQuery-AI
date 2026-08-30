@@ -30,7 +30,7 @@
     "created_at": "2026-08-26T09:09:00Z",
     "status": "success",
     "confidence": "high",
-    "answer": "The built up extent is mapped (covering about 0.95 km\u00b2 (9501 px)), but the number of separate regions cannot be stated reliably from this image alone. Each region is one connected patch of built-up land mapped at about 10 m per pixel \u2014 a block of development, not an individual building. Structures closer together than the pixel size cannot be separated."
+    "answer": "The built up extent is mapped (covering about 1.13 km\u00b2 (11305 px)), but the number of separate regions cannot be stated reliably from this image alone. Each region is one connected patch of built-up land mapped at about 10 m per pixel \u2014 a block of development, not an individual building. Structures closer together than the pixel size cannot be separated."
   },
   {
     "id": "SAT-2026-000104",
@@ -52,7 +52,7 @@
     "created_at": "2026-08-26T09:15:00Z",
     "status": "success",
     "confidence": "high",
-    "answer": "Combining optical and radar evidence, the scene is predominantly bare soil (70% of classified pixels). Both sensors independently agree on 99% of the classified area. The largest sensor disagreement (1.1% of the scene) was resolved by radar in favour of bare soil."
+    "answer": "Combining optical and radar evidence, the scene is predominantly bare soil (70% of classified pixels). Both sensors independently agree on 98% of the classified area. The largest sensor disagreement (1.4% of the scene) was resolved by radar in favour of bare soil."
   },
   {
     "id": "SAT-2026-000106",
@@ -63,6 +63,6 @@
     "created_at": "2026-08-26T09:18:00Z",
     "status": "success",
     "confidence": "medium",
-    "answer": "Change was detected across 10.8% of the valid area (about 2.82 km\u00b2). The dominant transition is bare soil to vegetation, covering 33% of the changed area. 66% of the detected change is corroborated by both detectors."
+    "answer": "Change was detected across 10.7% of the valid area (about 2.81 km\u00b2). The dominant transition is bare soil to vegetation, covering 33% of the changed area. 66% of the detected change is corroborated by both detectors."
   }
 ]

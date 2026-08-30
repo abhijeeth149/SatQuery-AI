@@ -157,28 +157,30 @@ class TestAccuracyAgainstGroundTruth:
     """Scored against the demo scene's exact class map, not against another implementation."""
 
     def test_fusion_improves_overall_accuracy(self, fused, optical_only, demo_truth):
-        """0.9777 optical alone → 0.9923 fused."""
+        """0.9768 optical alone → 0.9923 fused."""
         before = accuracy(optical_only.class_map, demo_truth)
         after = accuracy(fused.class_map, demo_truth)
-        assert before == pytest.approx(0.9777, abs=0.005)
+        assert before == pytest.approx(0.9768, abs=0.005)
         assert after == pytest.approx(0.9923, abs=0.005)
         assert after > before
 
     def test_built_up_is_the_axis_that_improves(self, fused, optical_only, demo_truth):
-        """F1 0.7756 → 0.9989, driven by precision 0.7072 → 0.9997.
+        """F1 0.7861 → 0.9989, driven by precision 0.6651 → 0.9997.
 
         The direction matters as much as the size. Optical over-claims built-up because bare
         soil is also SWIR-bright, so the gain must come from removing false positives rather
-        than from finding more pixels.
+        than from finding more pixels: recall moves 0.9608 → 0.9981 while precision moves by a
+        third of its range.
         """
         truth = demo_truth == GT_BUILT_UP
         p0, r0, f0 = prf(optical_only.class_map == LandCoverClass.BUILT_UP.code, truth)
         p1, r1, f1 = prf(fused.mask_for(LandCoverClass.BUILT_UP), truth)
 
-        assert f0 == pytest.approx(0.7756, abs=0.01)
+        assert f0 == pytest.approx(0.7861, abs=0.01)
         assert f1 == pytest.approx(0.9989, abs=0.005)
-        assert p0 == pytest.approx(0.7072, abs=0.01)
+        assert p0 == pytest.approx(0.6651, abs=0.01)
         assert p1 == pytest.approx(0.9997, abs=0.005)
+        assert r0 == pytest.approx(0.9608, abs=0.01)
         assert p1 - p0 > 0.25
 
     def test_fusion_leaves_the_axis_radar_cannot_judge_alone(
@@ -205,18 +207,18 @@ class TestAccuracyAgainstGroundTruth:
     def test_bare_soil_improves_as_the_mirror_of_built_up(
         self, fused, optical_only, demo_truth
     ):
-        """0.9841 → 0.9945. Not an independent gain — it is where the withdrawn pixels go."""
+        """0.9833 → 0.9945. Not an independent gain — it is where the withdrawn pixels go."""
         truth = demo_truth == GT_BARE_SOIL
         _, _, before = prf(optical_only.class_map == LandCoverClass.BARE_SOIL.code, truth)
         _, _, after = prf(fused.mask_for(LandCoverClass.BARE_SOIL), truth)
-        assert before == pytest.approx(0.9841, abs=0.01)
+        assert before == pytest.approx(0.9833, abs=0.01)
         assert after == pytest.approx(0.9945, abs=0.005)
 
     def test_both_directions_of_the_built_up_rule_are_correct(self, fused, demo_truth):
         """The rule was fixed in advance, so it could have been wrong either way.
 
-        Radar asserting built-up over optical's bare soil: 1,083 pixels, all truly built.
-        Radar withdrawing optical's built-up claim: 2,787 pixels, 2,733 truly bare soil.
+        Radar asserting built-up over optical's bare soil: 298 pixels, all truly built.
+        Radar withdrawing optical's built-up claim: 3,798 pixels, 3,770 truly bare soil.
         """
         asserts = [
             c for c in fused.conflicts
@@ -227,7 +229,7 @@ class TestAccuracyAgainstGroundTruth:
         group = asserts[0]
         assert group.arbiter == "sar"
         assert group.resolved_as is LandCoverClass.BUILT_UP
-        assert group.pixel_count == pytest.approx(1083, rel=0.05)
+        assert group.pixel_count == pytest.approx(298, rel=0.05)
 
         withdrawn = [
             c for c in fused.conflicts
@@ -237,10 +239,10 @@ class TestAccuracyAgainstGroundTruth:
         assert withdrawn, "the withdrawal direction must occur on this scene"
         assert all(c.resolved_as is LandCoverClass.BARE_SOIL for c in withdrawn)
         total = sum(c.pixel_count for c in withdrawn)
-        assert total == pytest.approx(2787, rel=0.05)
+        assert total == pytest.approx(3798, rel=0.05)
 
     def test_the_documented_weak_corner_is_the_documented_size(self, fused, demo_truth):
-        """34 shoreline pixels the rule gets wrong, recorded rather than smoothed over.
+        """6 shoreline pixels the rule gets wrong, recorded rather than smoothed over.
 
         Optical called them built-up, radar called them smooth, so Rule A withdraws the
         built-up claim and they fall back to bare soil — but they are truly water that
@@ -256,7 +258,7 @@ class TestAccuracyAgainstGroundTruth:
         )
         assert group is not None
         assert group.pixel_count < 100
-        assert group.pixel_count == pytest.approx(34, abs=15)
+        assert group.pixel_count == pytest.approx(6, abs=10)
 
 
 class TestFusionRecoversWhatOpticalRefuses:
@@ -296,8 +298,8 @@ class TestFusionRecoversWhatOpticalRefuses:
 # Evidence labelling
 # ---------------------------------------------------------------------------
 class TestEvidenceLabelling:
-    """The evidence label is the module's main output for the confidence layer, so it must
-    actually predict correctness rather than merely decorate the result."""
+    """The evidence label is the module's main output for the confidence layer, so what it does
+    and does not establish has to be measured rather than assumed."""
 
     def test_agreement_fraction_matches_the_evidence_map(self, fused):
         """A derived number and the map it summarises must not be able to disagree."""
@@ -307,17 +309,26 @@ class TestEvidenceLabelling:
         assert fused.conflict_fraction == pytest.approx(1.0 - fused.agreement_fraction)
 
     def test_the_sensors_agree_on_almost_all_of_the_demo_scene(self, fused):
-        """98.51%."""
-        assert fused.agreement_fraction == pytest.approx(0.9851, abs=0.01)
+        """98.43%."""
+        assert fused.agreement_fraction == pytest.approx(0.9843, abs=0.01)
 
-    def test_corroborated_pixels_are_more_accurate_than_arbitrated_ones(
+    def test_the_evidence_label_is_provenance_and_not_a_correctness_predictor(
         self, fused, demo_truth
     ):
-        """0.9924 where both sensors agreed, against 0.9857 where they had to be arbitrated.
+        """0.9923 where both sensors agreed, against 0.9927 where they had to be arbitrated.
 
-        The gap is what justifies carrying the label at all. It is small on this scene because
-        the arbitration is right nearly every time, so the test asserts the ordering and the
-        two levels rather than a large margin it would be dishonest to claim.
+        The two populations are indistinguishable — 0.0005 apart over a 4,128-pixel conflict
+        set, which is about two pixels. So the label records *which sensors supported a pixel*,
+        which is what the confidence layer is told it means, and it must not be presented as
+        evidence that a corroborated pixel is more likely to be right.
+
+        This test previously asserted the opposite ordering (0.9924 against 0.9857), and the
+        reason it flipped is worth keeping: the conflict population is now almost entirely the
+        withdrawal direction of Rule A, where radar is right 3,770 times out of 3,798. Making
+        the optical texture cue stable shrank the conflict set down to the part radar reliably
+        wins, so what is left over-performs the corroborated majority rather than
+        under-performing it. An arbitration that is nearly always correct is a good outcome; it
+        just cannot also serve as a demonstration that arbitration is risky.
         """
         both = fused.evidence_mask(FusionEvidence.BOTH)
         conflict = fused.evidence_mask(FusionEvidence.CONFLICT)
@@ -325,9 +336,12 @@ class TestEvidenceLabelling:
 
         acc_both = float((fused.class_map[both] == demo_truth[both]).mean())
         acc_conflict = float((fused.class_map[conflict] == demo_truth[conflict]).mean())
-        assert acc_both == pytest.approx(0.9924, abs=0.005)
-        assert acc_conflict == pytest.approx(0.9857, abs=0.01)
-        assert acc_both > acc_conflict
+        assert acc_both == pytest.approx(0.9923, abs=0.005)
+        assert acc_conflict == pytest.approx(0.9927, abs=0.005)
+        assert abs(acc_both - acc_conflict) < 0.005, (
+            "if the two populations separate again, the label's meaning must be re-documented "
+            "before anything is allowed to read it as a correctness signal"
+        )
 
     def test_every_classified_pixel_carries_an_evidence_label(self, fused):
         """No pixel may hold a class without a record of what supported it."""
@@ -350,10 +364,17 @@ class TestEvidenceLabelling:
 
     def test_built_up_is_the_least_corroborated_class(self, fused):
         """It is the only class the two sensors reach by different physics, so it is the only
-        one where a large arbitrated share is expected — and reporting that is the point."""
+        one where a large arbitrated share is expected — and reporting that is the point.
+
+        0.9608, against 0.9793 for bare soil (the class on the other side of the same boundary)
+        and 1.0000 for vegetation. The margin is what carries the claim; the absolute level is
+        high because the optical and radar readings of this scene mostly do agree.
+        """
         by_class = {s.label: s.corroborated_fraction for s in fused.stats}
         assert by_class[LandCoverClass.BUILT_UP] == min(by_class.values())
-        assert by_class[LandCoverClass.BUILT_UP] < 0.95
+        assert by_class[LandCoverClass.BUILT_UP] == pytest.approx(0.9608, abs=0.01)
+        others = [v for k, v in by_class.items() if k is not LandCoverClass.BUILT_UP]
+        assert by_class[LandCoverClass.BUILT_UP] < min(others) - 0.01
 
     def test_corroborated_fraction_counts_the_whole_classified_map(self, fused):
         """Distinct from ``agreement_fraction``, which ignores unobserved pixels."""

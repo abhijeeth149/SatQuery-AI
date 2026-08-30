@@ -35,7 +35,7 @@ COPY backend/ /app/backend/
 COPY data/ /app/data/
 COPY storage/ /app/storage/
 
-ENV PYTHONPATH=/app/backend
+ENV PYTHONPATH=/app
 ENV SATQUERY_STORAGE_ROOT=/app/storage
 ENV SATQUERY_DEMO_DATA_ROOT=/app/data/demo
 

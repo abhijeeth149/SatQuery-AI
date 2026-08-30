@@ -1,4 +1,4 @@
-.PHONY: help install test-all demo-test dev-backend dev-frontend docker-build docker-up clean evaluate lint typecheck train prepare-data
+.PHONY: help install test-all demo-test dev-backend dev-frontend docker-build docker-up clean evaluate evaluate-adaptation lint typecheck train prepare-data
 
 PYTHON = python
 PYTEST = pytest
@@ -7,9 +7,10 @@ NPM = npm
 help:
 	@echo "SatQuery AI (SIH26167) Build Commands:"
 	@echo "  make install        - Install python dependencies"
-	@echo "  make prepare-data   - Generate synthetic BigEarthNet dataset"
-	@echo "  make train          - Run real PyTorch model adaptation"
-	@echo "  make evaluate       - Run benchmark evaluation suite"
+	@echo "  make prepare-data        - Download EuroSAT (RGB) and record the seeded subset"
+	@echo "  make train               - Adapt pretrained ResNet-18 to EuroSAT (linear probe)"
+	@echo "  make evaluate-adaptation - Remote-sensing adaptation evaluation (held-out test split)"
+	@echo "  make evaluate            - Run benchmark evaluation suite"
 	@echo "  make test-all       - Run full test suite (lint, backend, frontend)"
 	@echo "  make demo-test      - Run automated test of 5 mandatory SIH demo scenarios"
 	@echo "  make lint           - Run linting (ruff + eslint)"
@@ -25,20 +26,33 @@ install:
 	cd frontend && $(NPM) install
 
 # === Data Preparation ===
+# EuroSAT (RGB) — a real, MIT-licensed Sentinel-2 dataset, ~94 MB. Not BigEarthNet, and not
+# synthetic: the previous synthetic-patch generator was removed because nothing trained on
+# hand-written reflectance centroids could honestly be called a remote-sensing adaptation.
+# Idempotent — torchvision skips the download once the archive is unpacked.
 prepare-data:
-	@echo "=== Generating Synthetic BigEarthNet Dataset ==="
-	$(PYTHON) -m ml.adaptation.prepare_data --output_dir ml/datasets/processed --num_synthetic 200
+	@echo "=== Downloading EuroSAT (RGB) and recording the seeded subset ==="
+	$(PYTHON) -m ml.adaptation.prepare_data --train_size 2000 --val_size 400 --test_size 400 --seed 1337
 	@echo "=== Generating Demo GeoTIFF Data ==="
 	$(PYTHON) scripts/generate_demo_data.py
 	@echo "=== Data Preparation Complete ==="
 
-# === Real ML Training ===
+# === Real ML Adaptation ===
+# Linear probe: real torchvision resnet18 + IMAGENET1K_V1 weights, backbone frozen, 10-class fc
+# retrained. 5,130 trainable parameters, ~190 s on CPU. Writes model.pt + metadata.json to
+# ml/checkpoints/satquery-rs-visual-v1/, which is what the backend's PREFERRED rung loads.
 train: prepare-data
-	@echo "=== Running Real PyTorch Model Adaptation ==="
-	$(PYTHON) -m ml.adaptation.train --dataset_dir ml/datasets/processed --output_dir ml/checkpoints/satquery_adapted --epochs 10
-	@echo "=== Evaluating Adapted Model ==="
-	$(PYTHON) -m ml.adaptation.evaluate --checkpoint_dir ml/checkpoints/satquery_adapted --dataset_dir ml/datasets/processed
-	@echo "=== Training Complete ==="
+	@echo "=== Adapting pretrained ResNet-18 to EuroSAT (linear probe) ==="
+	$(PYTHON) -m ml.adaptation.train --epochs 3 --batch_size 32 --lr 1e-3 --seed 1337
+	@$(MAKE) evaluate-adaptation
+	@echo "=== Adaptation Complete ==="
+
+# === Remote-sensing adaptation evaluation ===
+# Measures top-1 accuracy on the 400 held-out EuroSAT test images and writes evaluation.json.
+# This is NOT the SIH prescribed benchmark, which was not run; the report says so itself.
+evaluate-adaptation:
+	@echo "=== Remote-sensing adaptation evaluation (held-out test split) ==="
+	$(PYTHON) -m ml.adaptation.evaluate --split test
 
 # === Linting ===
 lint:
@@ -60,20 +74,24 @@ test-all:
 	@echo " SatQuery AI — Complete Test Suite"
 	@echo "=============================================="
 	@echo ""
-	@echo "=== [1/5] Backend Unit Tests ==="
+	@echo "=== [1/6] Backend Unit Tests ==="
 	$(PYTEST) backend/tests/unit backend/tests/core -x -q --tb=short
 	@echo ""
-	@echo "=== [2/5] Backend Agent & Service Tests ==="
+	@echo "=== [2/6] Backend Agent & Service Tests ==="
 	$(PYTEST) backend/tests/agent backend/tests/services -x -q --tb=short
 	@echo ""
-	@echo "=== [3/5] Backend Geospatial Tests ==="
+	@echo "=== [3/6] Backend Geospatial Tests ==="
 	$(PYTEST) backend/tests/geospatial -x -q --tb=short
 	@echo ""
-	@echo "=== [4/5] Backend API & Integration Tests ==="
+	@echo "=== [4/6] Backend API & Integration Tests ==="
 	$(PYTEST) backend/tests/api backend/tests/integration -x -q --tb=short
 	@echo ""
-	@echo "=== [5/5] Backend Adversarial Tests ==="
+	@echo "=== [5/6] Backend Adversarial Tests ==="
 	$(PYTEST) backend/tests/adversarial -x -q --tb=short
+	@echo ""
+	@echo "=== [6/6] Remote-Sensing Adaptation Tests ==="
+	@echo "(checkpoint-dependent cases skip when ml/checkpoints/satquery-rs-visual-v1 is absent)"
+	$(PYTEST) backend/tests/ml -x -q --tb=short
 	@echo ""
 	@echo "=== Frontend Tests ==="
 	-cd frontend && $(NPM) run test -- --run 2>nul || echo "Frontend tests skipped"
@@ -132,7 +150,11 @@ docker-up:
 	docker compose up -d
 
 # === Clean ===
+# Deliberately does NOT delete ml/checkpoints/satquery-rs-visual-v1: that is a real trained
+# checkpoint that costs ~190 s plus a 94 MB download to reproduce. `ml/datasets/processed` holds
+# only the regenerable split manifest, and `_retired_synthetic_v0` is the quarantined synthetic-data
+# experiment that nothing reads, so both are safe to remove.
 clean:
-	rm -rf .pytest_cache backend/.pytest_cache ml/datasets/processed ml/checkpoints/satquery_adapted
+	rm -rf .pytest_cache backend/.pytest_cache ml/datasets/processed ml/checkpoints/_retired_synthetic_v0
 	rm -rf storage/uploads/* storage/previews/* reports/*
 	rm -rf frontend/node_modules/.cache

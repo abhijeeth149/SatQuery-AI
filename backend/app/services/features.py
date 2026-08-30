@@ -45,19 +45,37 @@ def local_variance(band: np.ndarray, window: int = 7) -> np.ndarray:
     return normalize01(np.sqrt(var))
 
 
+_EDGE_GRADIENT_PCT = 96.0
+_EDGE_HYSTERESIS_RATIO = 0.4
+
+
 def edge_density(band: np.ndarray, window: int = 9) -> np.ndarray:
     """Fraction of edge pixels in a neighbourhood, normalised to ``[0, 1]``.
 
     Uses Canny on an 8-bit stretch, then a box filter to get local density. Dense edges
     indicate man-made structure; smooth areas indicate water, crops or bare ground.
+
+    The Canny hysteresis is set from a high percentile of the **gradient magnitude**, which is the
+    quantity Canny actually thresholds. It used to be set from Otsu on the *brightness* histogram,
+    and that made the whole texture cue unstable between two dates of the same place: Otsu on a
+    brightness histogram is a step function of the class proportions, so flooding part of a scene
+    added a large dark population, dropped the threshold from 178 to 99, and tripled the detected
+    edge fraction over ground that had not changed at all. Downstream, the built-up classifier then
+    derived a different texture threshold on each date and reported tens of thousands of
+    bare-soil-to-built-up conversions that no spectral measurement corroborated. A gradient
+    percentile moves continuously with the population instead of jumping, so the same place measures
+    the same texture on both dates and a bi-temporal comparison is meaningful.
     """
     norm = normalize01(_fill_invalid(band))
     u8 = (norm * 255).astype(np.uint8)
-    # Otsu supplies a scene-adaptive high threshold so the detector is not tuned to
-    # one particular brightness range.
-    high, _ = cv2.threshold(u8, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
-    high = float(np.clip(high, 30, 200))
-    edges = cv2.Canny(u8, int(high * 0.5), int(high)).astype(np.float32) / 255.0
+    # Canny's own first stage is a Gaussian; smoothing before Sobel measures the gradient of the
+    # same signal the detector sees, rather than of the raw pixel noise.
+    blurred = cv2.GaussianBlur(u8, (5, 5), 1.4)
+    gx = cv2.Sobel(blurred, cv2.CV_32F, 1, 0, ksize=3)
+    gy = cv2.Sobel(blurred, cv2.CV_32F, 0, 1, ksize=3)
+    high = float(np.percentile(cv2.magnitude(gx, gy), _EDGE_GRADIENT_PCT))
+    high = float(np.clip(high, 30.0, 200.0))
+    edges = cv2.Canny(u8, int(high * _EDGE_HYSTERESIS_RATIO), int(high)).astype(np.float32) / 255.0
     return normalize01(cv2.blur(edges, (window, window)))
 
 

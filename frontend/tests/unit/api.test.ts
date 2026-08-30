@@ -413,6 +413,236 @@ describe('api client (live backend mapping)', () => {
     const result = await analyze({ mode: 'bitemporal_pair', query: 'What changed?', files: [] })
     expect(result.trace.map((s) => s.duration_ms)).toEqual([null, 0, 55])
   })
+
+  /**
+   * The imagery a result page shows.
+   *
+   * Both mappers hardcoded `artifacts: []` and `inputs: []`, which is why a live run's Imagery panel
+   * read "No rendered imagery for this analysis." over an analysis that had just classified every
+   * pixel, and its Inputs panel came up empty on reload. The backend renders both from the arrays the
+   * run produced and publishes them; these pin that they are read, and that nothing is substituted
+   * when a run genuinely recorded none.
+   */
+  const BOX = { south: 18.9, west: 74.9, north: 19.0, east: 75.0 }
+
+  const RENDERED = [
+    {
+      kind: 'base',
+      label: 'Input image',
+      url: '/storage/artifacts/SAT-LIVE-IMG/base.png',
+      bounds_wgs84: BOX,
+      legend: [],
+    },
+    {
+      kind: 'class_map',
+      label: 'Land-cover classification',
+      url: '/storage/artifacts/SAT-LIVE-IMG/overlay.png',
+      bounds_wgs84: BOX,
+      legend: [{ label: 'Water', color: '#3366cd', key: 'water' }],
+    },
+  ]
+
+  const BACKEND_INPUT = {
+    filename: 'scene.tif',
+    driver: 'GTiff',
+    width: 60,
+    height: 60,
+    bands: 4,
+    dtype: 'uint16',
+    crs: 'EPSG:32643',
+    crs_epsg: 32643,
+    transform: [10, 0, 500000, 0, -10, 3000000],
+    bounds: [500000, 2999400, 500600, 3000000],
+    nodata: null,
+    pixel_size: [10, 10],
+    georeferenced: true,
+    // The fourth band carries no name in the file; the null holds its place.
+    band_descriptions: ['blue', 'green', 'red', null],
+    decimation: 1,
+    modality: 'optical',
+    band_roles: ['blue', 'green', 'red', 'nir'],
+    bounds_wgs84: BOX,
+  }
+
+  /** What the upload endpoint returns: a thumbnail and the few header fields it echoes back. */
+  const UPLOADED = {
+    image_id: 'img-1',
+    filename: 'scene.tif',
+    width: 60,
+    height: 60,
+    bands: 4,
+    dtype: 'uint16',
+    crs: 'EPSG:32643',
+    crs_epsg: 32643,
+    georeferenced: true,
+    modality: 'optical',
+    preview_url: '/storage/previews/img-1.png',
+    decimation: 1,
+    pixel_size: [10, 10],
+    bounds: [500000, 2999400, 500600, 3000000],
+    band_descriptions: ['blue', 'green', 'red'],
+  }
+
+  function withImagery(id: string) {
+    return backendEnvelope(id, { artifacts: RENDERED, inputs: [BACKEND_INPUT] })
+  }
+
+  it('shows the imagery a stored analysis recorded', async () => {
+    stubBackend(() => withImagery('SAT-LIVE-000010'))
+    const result = await getAnalysis('SAT-LIVE-000010')
+    expect(result.artifacts.map((a) => a.kind)).toEqual(['base', 'class_map'])
+    expect(result.artifacts[1].url).toBe('/storage/artifacts/SAT-LIVE-IMG/overlay.png')
+    expect(result.artifacts[1].legend).toEqual([
+      { label: 'Water', color: '#3366cd', key: 'water' },
+    ])
+    // The footprint passes through as measured — the map draws the overlay on it.
+    expect(result.artifacts[0].bounds_wgs84).toEqual(BOX)
+  })
+
+  it('leaves the imagery empty when the run recorded none', async () => {
+    stubBackend(() => backendEnvelope('SAT-LIVE-000011'))
+    const result = await getAnalysis('SAT-LIVE-000011')
+    // A run whose render failed says so in its warnings; the panel's placeholder is then the truth
+    // about that run, so no stand-in image is invented for it.
+    expect(result.artifacts).toEqual([])
+    expect(result.inputs).toEqual([])
+  })
+
+  it('keeps a null footprint null rather than making the map work', async () => {
+    stubBackend(() =>
+      backendEnvelope('SAT-LIVE-000012', {
+        artifacts: RENDERED.map((a) => ({ ...a, bounds_wgs84: null })),
+      }),
+    )
+    const result = await getAnalysis('SAT-LIVE-000012')
+    // §8: null is what tells the result page to use its plain pixel viewer.
+    expect(result.artifacts.every((a) => a.bounds_wgs84 === null)).toBe(true)
+  })
+
+  it('keeps the input headers the analysis resolved', async () => {
+    stubBackend(() => withImagery('SAT-LIVE-000013'))
+    const { inputs } = await getAnalysis('SAT-LIVE-000013')
+    expect(inputs).toHaveLength(1)
+    expect(inputs[0].band_roles).toEqual(['blue', 'green', 'red', 'nir'])
+    expect(inputs[0].driver).toBe('GTiff')
+    expect(inputs[0].transform).toEqual([10, 0, 500000, 0, -10, 3000000])
+    expect(inputs[0].pixel_size).toEqual([10, 10])
+    // An unnamed band stays a hole at its own position.
+    expect(inputs[0].band_descriptions).toEqual(['blue', 'green', 'red', null])
+  })
+
+  it('will not name a sensor the backend did not resolve', async () => {
+    stubBackend(() =>
+      backendEnvelope('SAT-LIVE-000014', {
+        inputs: [{ ...BACKEND_INPUT, modality: 'multispectral-ish' }],
+      }),
+    )
+    const { inputs } = await getAnalysis('SAT-LIVE-000014')
+    expect(inputs[0].modality).toBe('unknown')
+  })
+
+  it("prefers the run's own imagery over the upload thumbnails", async () => {
+    stubBackend((url) =>
+      url.includes('/api/upload') ? UPLOADED : withImagery('SAT-LIVE-000015'),
+    )
+    const result = await analyze({
+      mode: 'single_optical',
+      query: 'What land cover types are present?',
+      files: [new File([new Uint8Array([1, 2, 3])], 'scene.tif')],
+    })
+    // The upload thumbnail is a picture of the input; the analysis also drew what it measured.
+    expect(result.artifacts.map((a) => a.kind)).toEqual(['base', 'class_map'])
+    expect(result.artifacts.map((a) => a.url)).not.toContain('/storage/previews/img-1.png')
+    // And the raster as the analysis read it, rather than as the upload echoed it.
+    expect(result.inputs[0].band_roles).toEqual(['blue', 'green', 'red', 'nir'])
+  })
+
+  it('falls back to the upload thumbnails when the backend renders none', async () => {
+    stubBackend((url) =>
+      url.includes('/api/upload') ? UPLOADED : backendEnvelope('SAT-LIVE-000016'),
+    )
+    const result = await analyze({
+      mode: 'single_optical',
+      query: 'What land cover types are present?',
+      files: [new File([new Uint8Array([1, 2, 3])], 'scene.tif')],
+    })
+    expect(result.artifacts).toEqual([
+      {
+        kind: 'base',
+        label: 'scene.tif',
+        url: '/storage/previews/img-1.png',
+        bounds_wgs84: null,
+        legend: [],
+      },
+    ])
+    // The upload response reports no band roles, so none are claimed on its behalf.
+    expect(result.inputs[0].band_roles).toEqual([])
+  })
+
+  /**
+   * A recorded case asked for by name is answered from the recording.
+   *
+   * The two id spaces overlap: the backend mints `SAT-2026-NNNNNN` from its own counter, so a machine
+   * that has run more than a hundred analyses also holds rows at the six ids of the shipped
+   * recordings. Resolving live-first made the dashboard's "View example" links open those rows instead
+   * — a different question, a different tool, and an empty Imagery panel, since a row recorded before
+   * artifacts were persisted carries none.
+   */
+  it('opens the recording for a demo case even when the backend has that id', async () => {
+    const calls = stubBackend(() =>
+      // What this machine's backend actually returns for SAT-2026-000101: an unrelated fusion run.
+      backendEnvelope('SAT-2026-000101', { query: 'Combine the optical and radar images.' }),
+    )
+    const result = await getAnalysis('SAT-2026-000101', { recorded: true })
+    expect(result.fixture).toBe(true)
+    expect(result.query).toBe('What land cover types are present in this scene?')
+    expect(result.tool).toBe('landcover-spectral-cv')
+    expect(result.artifacts.map((a) => a.kind)).toEqual(['base', 'class_map'])
+    // Answered entirely from the recording: the backend was never consulted for it.
+    expect(calls.some((u) => u.includes('/api/analysis/'))).toBe(false)
+  })
+
+  it('still prefers the live row for an id nobody asked for as a recording', async () => {
+    stubBackend(() =>
+      backendEnvelope('SAT-2026-000103', { query: 'Combine the optical and radar images.' }),
+    )
+    // 000103 is a shipped recording too, so this is the same collision seen from the other side: an
+    // ordinary link — a history row, a pasted URL — must still open the live analysis, not shadow it
+    // with the recording. (The live row then stays in the session cache under that id; the recorded
+    // path above is checked ahead of that cache for exactly this reason.)
+    const result = await getAnalysis('SAT-2026-000103')
+    expect(result.fixture).toBe(false)
+    expect(result.query).toBe('Combine the optical and radar images.')
+  })
+
+  /**
+   * The dashboard listing merges live history with the shipped recordings, and each row links to
+   * `/analysis/<id>` — so the row itself has to say which of the two namespaces its id belongs to.
+   * Without that, a merged recording's row links live-first and opens a different analysis than the
+   * one it just listed, exactly as the "View example" cards did.
+   */
+  it('says which listed rows are recordings and which are live runs', async () => {
+    stubBackend(() => ({
+      items: [
+        {
+          analysis_id: 'SAT-2026-000544',
+          query: 'Combine the optical and radar images.',
+          task: 'fusion',
+          mode: 'pair_optical_sar',
+          answer: 'Fused land cover mapped.',
+          confidence_level: 'medium',
+          created_at: '2026-08-30T10:00:00Z',
+        },
+      ],
+    }))
+    const rows = await listAnalyses()
+    const live = rows.find((r) => r.id === 'SAT-2026-000544')
+    expect(live?.fixture).toBeFalsy()
+    // The six recordings are merged in behind it, and each one is marked as such.
+    const recorded = rows.filter((r) => r.id !== 'SAT-2026-000544')
+    expect(recorded).toHaveLength(6)
+    expect(recorded.every((r) => r.fixture === true)).toBe(true)
+  })
 })
 
 describe('AnalysisData type guards against real fixtures', () => {

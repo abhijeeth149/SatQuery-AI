@@ -33,6 +33,29 @@ describe('DashboardPage', () => {
   it('links recent analyses to their result pages', async () => {
     renderDashboard()
     const link = await screen.findByRole('link', { name: /Bi-temporal change analysis/i })
-    expect(link).toHaveAttribute('href', '/analysis/SAT-2026-000106')
+    // A recorded row carries the marker, so the row opens the analysis it just listed rather than a
+    // live run that happens to share its id.
+    expect(link).toHaveAttribute('href', '/analysis/SAT-2026-000106?demo=1')
+  })
+
+  /**
+   * "View example" advertises one specific recorded case, so it must ask for the recording by name.
+   *
+   * The backend numbers its own runs from the same `SAT-2026-NNNNNN` sequence as the six shipped
+   * recordings, so once a machine has run past a hundred analyses those ids exist in its database too
+   * — and a plain `/analysis/<id>` link resolved live-first, opening an unrelated run under this
+   * card's title, with no imagery because rows from before artifacts were persisted carry none.
+   */
+  it('asks for the recording behind each example, not whatever the backend has under that id', async () => {
+    renderDashboard()
+    const examples = await screen.findAllByRole('link', { name: /View example/i })
+    expect(examples).toHaveLength(5)
+    expect(examples.map((a) => a.getAttribute('href'))).toEqual([
+      '/analysis/SAT-2026-000101?demo=1',
+      '/analysis/SAT-2026-000102?demo=1',
+      '/analysis/SAT-2026-000104?demo=1',
+      '/analysis/SAT-2026-000105?demo=1',
+      '/analysis/SAT-2026-000106?demo=1',
+    ])
   })
 })

@@ -14,7 +14,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from ..core.types import (
     AnalysisStatus,
@@ -150,6 +150,70 @@ class ConfidenceSchema(BaseModel):
     factors: list[ConfidenceFactorSchema] = Field(default_factory=list)
 
 
+class Wgs84BoundsSchema(BaseModel):
+    """Axis-aligned lat/lon box enclosing a rendered image's footprint."""
+    south: float
+    west: float
+    north: float
+    east: float
+
+
+class LegendEntrySchema(BaseModel):
+    """One legend swatch: the colour a class is drawn in, and the key it is drawn from."""
+    label: str
+    color: str = Field(description="CSS hex colour, taken from the palette the image was drawn with")
+    key: str
+
+
+class ArtifactSchema(BaseModel):
+    """One rendered PNG the result page can display.
+
+    ``bounds_wgs84`` is null for an ungeoreferenced input, which the UI reads as "show this in a
+    plain pixel viewer" — it is never filled with a plausible box to make the map work (§8).
+    """
+    kind: str = Field(description="'base' for the input composite; otherwise the overlay's map")
+    label: str
+    url: str = Field(description="Path the file is served at, under the /storage mount")
+    bounds_wgs84: Wgs84BoundsSchema | None = None
+    legend: list[LegendEntrySchema] = Field(default_factory=list)
+
+
+class InputMetaSchema(BaseModel):
+    """Per-input raster metadata: the file's own header, plus what loading resolved.
+
+    Extra keys are allowed through deliberately — this is
+    :meth:`app.geospatial.raster.RasterMetadata.to_dict` on the wire, and a new measurement added
+    there should reach the client rather than being silently dropped by this schema.
+    """
+    model_config = ConfigDict(extra="allow")
+
+    filename: str
+    driver: str = Field(description="The GDAL driver the file was opened with, e.g. 'GTiff'")
+    width: int
+    height: int
+    bands: int
+    dtype: str
+    crs: str | None = None
+    crs_epsg: int | None = None
+    transform: list[float] | None = None
+    bounds: list[float] | None = None
+    nodata: float | None = None
+    pixel_size: list[float] | None = None
+    georeferenced: bool
+    band_descriptions: list[str | None] = Field(
+        default_factory=list,
+        description=(
+            "The file's own band names, positionally. An entry is null for a band the file does not "
+            "name (a plain PNG names none) — the position is kept rather than compacted, so band 3's "
+            "name cannot slide onto band 2"
+        ),
+    )
+    decimation: float = 1.0
+    modality: Modality
+    band_roles: list[str] = Field(default_factory=list)
+    bounds_wgs84: Wgs84BoundsSchema | None = None
+
+
 class ExecutionTraceStep(BaseModel):
     """Individual step execution trace item."""
     step_index: int
@@ -194,6 +258,21 @@ class ExecutionTraceSchema(BaseModel):
     total_duration_ms: int | None = Field(
         default=None, description="Measured end-to-end duration of the whole analysis (§51)"
     )
+    artifacts: list[ArtifactSchema] = Field(
+        default_factory=list,
+        description=(
+            "The imagery rendered for this analysis, stored with the trace so a re-read analysis "
+            "still has its pictures. Empty for rows persisted before rendering existed, and for a "
+            "run whose imagery could not be rendered — never a placeholder"
+        ),
+    )
+    inputs: list[InputMetaSchema] = Field(
+        default_factory=list,
+        description=(
+            "The rasters the analysis actually read, as they were read (post-decimation), stored "
+            "with the trace so the Inputs panel survives a reload"
+        ),
+    )
 
 
 class AnalyzeResponse(BaseModel):
@@ -223,6 +302,16 @@ class AnalyzeResponse(BaseModel):
     execution_trace: ExecutionTraceSchema
     data: dict[str, Any] = Field(default_factory=dict)
     warnings: list[str] = Field(default_factory=list)
+    artifacts: list[ArtifactSchema] = Field(
+        default_factory=list,
+        description=(
+            "Imagery rendered from this analysis's own arrays — the input composite and the task's "
+            "overlay. Empty means nothing was rendered, not that nothing was found"
+        ),
+    )
+    inputs: list[InputMetaSchema] = Field(
+        default_factory=list, description="Per-input raster metadata, in caller order"
+    )
     created_at: str
 
 
@@ -279,6 +368,15 @@ class ModelInfo(BaseModel):
     available: bool
     status: str = Field(description="'ready' when available, otherwise 'unavailable'")
     contract: ToolContractSchema
+    runtime: dict[str, Any] | None = Field(
+        default=None,
+        description=(
+            "Live provenance for a tool backed by a real artefact: mode ('LIVE' or 'UNAVAILABLE'), "
+            "checkpoint path, architecture, pretrained weights, adaptation method, dataset and "
+            "measured test accuracy. Absent for the deterministic analysers, which have no "
+            "checkpoint. Probed per request, never cached."
+        ),
+    )
 
 
 class HealthResponse(BaseModel):

@@ -10,35 +10,35 @@
   "task": "optical_sar_analysis",
   "tool": "fusion-decision-cv",
   "tier": "classical",
-  "duration_ms": 470.97,
-  "answer": "Combining optical and radar evidence, the scene is predominantly bare soil (70% of classified pixels). Both sensors independently agree on 99% of the classified area. The largest sensor disagreement (1.1% of the scene) was resolved by radar in favour of bare soil.",
+  "duration_ms": 465.2,
+  "answer": "Combining optical and radar evidence, the scene is predominantly bare soil (70% of classified pixels). Both sensors independently agree on 98% of the classified area. The largest sensor disagreement (1.4% of the scene) was resolved by radar in favour of bare soil.",
   "answer_withheld": null,
   "confidence": {
     "level": "high",
-    "score": 0.9265,
+    "score": 0.926,
     "sufficient": true,
     "limiting_factor": "registration",
     "reasons": [
       "Image co-registration scored 0.68 (offset 0.03 px, structural NCC 0.37).",
       "1 processing warning(s) were raised; see the result for details.",
-      "99% of the classified scene was supported by both sensors; 99% agreement where both observed the same pixel.",
-      "Optical and SAR agreed on 99% of the pixels both sensors classified.",
+      "98% of the classified scene was supported by both sensors; 98% agreement where both observed the same pixel.",
+      "Optical and SAR agreed on 98% of the pixels both sensors classified.",
       "Input image quality scored 0.99 (dynamic range 0.73, saturation 0.02, nodata 0.00)."
     ],
     "factors": [
       {
         "name": "corroboration",
-        "value": 0.9851,
+        "value": 0.9843,
         "weight": 0.45,
         "kind": "gate",
-        "reason": "99% of the classified scene was supported by both sensors; 99% agreement where both observed the same pixel."
+        "reason": "98% of the classified scene was supported by both sensors; 98% agreement where both observed the same pixel."
       },
       {
         "name": "sensor_agreement",
-        "value": 0.9851,
+        "value": 0.9843,
         "weight": 0.25,
         "kind": "contributor",
-        "reason": "Optical and SAR agreed on 99% of the pixels both sensors classified."
+        "reason": "Optical and SAR agreed on 98% of the pixels both sensors classified."
       },
       {
         "name": "registration",
@@ -65,11 +65,11 @@
   },
   "evidence": [
     "Method: decision-level-optical-sar.",
-    "Sensor agreement over jointly-classified pixels: 98.5%; corroborated 98.5% of the fused map.",
+    "Sensor agreement over jointly-classified pixels: 98.4%; corroborated 98.4% of the fused map.",
     "Registration offset 0.03 px (quality 0.68).",
     "Radar separated regimes: smooth, diffuse, double bounce.",
-    "Conflict: optical built up vs radar diffuse over 2753 px resolved to bare soil (by sar).",
-    "Conflict: optical bare soil vs radar double bounce over 1083 px resolved to built up (by sar).",
+    "Conflict: optical built up vs radar diffuse over 3792 px resolved to bare soil (by sar).",
+    "Conflict: optical bare soil vs radar double bounce over 298 px resolved to built up (by sar).",
     "Radar backscatter measures surface roughness and geometry, not land cover. Moderate backscatter is reported as a single rough-surface class because vegetation and bare soil cannot be separated from single-polarisation data alone."
   ],
   "warnings": [
@@ -84,10 +84,10 @@
         "fraction": 0.6986,
         "percentage": 69.86,
         "area_m2": 18312300.0,
-        "corroborated_fraction": 0.9848,
+        "corroborated_fraction": 0.9793,
         "evidence": {
-          "both": 180336,
-          "conflict": 2787
+          "both": 179325,
+          "conflict": 3798
         }
       },
       {
@@ -119,31 +119,31 @@
         "fraction": 0.0298,
         "percentage": 2.98,
         "area_m2": 781300.0,
-        "corroborated_fraction": 0.8593,
+        "corroborated_fraction": 0.9608,
         "evidence": {
-          "both": 6714,
-          "conflict": 1099
+          "both": 7507,
+          "conflict": 306
         }
       }
     ],
     "dominant_class": "bare_soil",
-    "agreement_fraction": 0.9851,
-    "corroborated_fraction": 0.9851,
+    "agreement_fraction": 0.9843,
+    "corroborated_fraction": 0.9843,
     "evidence_breakdown": {
-      "both": 258234,
-      "conflict": 3910
+      "both": 258016,
+      "conflict": 4128
     },
     "evidence_fractions": {
-      "both": 0.9851,
-      "conflict": 0.0149
+      "both": 0.9843,
+      "conflict": 0.0157
     },
     "conflicts": [
       {
         "optical_class": "built_up",
         "sar_regime": "diffuse",
-        "pixel_count": 2753,
-        "fraction": 0.0105,
-        "area_m2": 275300.0,
+        "pixel_count": 3792,
+        "fraction": 0.01447,
+        "area_m2": 379200.0,
         "resolved_as": "bare_soil",
         "arbiter": "sar",
         "reason": "The optical bands suggested built-up land from brightness and surface texture, but radar measured no double-bounce return, so there is no vertical structure here. The built-up claim is withdrawn and the surface is reported as bare or unvegetated ground.",
@@ -156,31 +156,15 @@
       {
         "optical_class": "bare_soil",
         "sar_regime": "double_bounce",
-        "pixel_count": 1083,
-        "fraction": 0.00413,
-        "area_m2": 108300.0,
+        "pixel_count": 298,
+        "fraction": 0.00114,
+        "area_m2": 29800.0,
         "resolved_as": "built_up",
         "arbiter": "sar",
         "reason": "Radar measured a double-bounce return here, which is the geometric signature of a vertical surface meeting the ground. Nothing in the optical bands measures geometry, so the radar reading decides this.",
         "radar_candidate_surfaces": [
           "buildings or other vertical structures",
           "metallic objects or vessels"
-        ]
-      },
-      {
-        "optical_class": "built_up",
-        "sar_regime": "smooth",
-        "pixel_count": 34,
-        "fraction": 0.00013,
-        "area_m2": 3400.0,
-        "resolved_as": "bare_soil",
-        "arbiter": "sar",
-        "reason": "The optical bands suggested built-up land from brightness and surface texture, but radar measured no double-bounce return, so there is no vertical structure here. The built-up claim is withdrawn and the surface is reported as bare or unvegetated ground.",
-        "radar_candidate_surfaces": [
-          "calm open water",
-          "wet smooth ground",
-          "dry sand or bare tarmac",
-          "radar shadow"
         ]
       },
       {
@@ -201,15 +185,31 @@
       {
         "optical_class": "vegetation",
         "sar_regime": "double_bounce",
-        "pixel_count": 16,
-        "fraction": 6e-05,
-        "area_m2": 1600.0,
+        "pixel_count": 8,
+        "fraction": 3e-05,
+        "area_m2": 800.0,
         "resolved_as": "built_up",
         "arbiter": "sar",
         "reason": "Radar measured a double-bounce return here, which is the geometric signature of a vertical surface meeting the ground. Nothing in the optical bands measures geometry, so the radar reading decides this.",
         "radar_candidate_surfaces": [
           "buildings or other vertical structures",
           "metallic objects or vessels"
+        ]
+      },
+      {
+        "optical_class": "built_up",
+        "sar_regime": "smooth",
+        "pixel_count": 6,
+        "fraction": 2e-05,
+        "area_m2": 600.0,
+        "resolved_as": "bare_soil",
+        "arbiter": "sar",
+        "reason": "The optical bands suggested built-up land from brightness and surface texture, but radar measured no double-bounce return, so there is no vertical structure here. The built-up claim is withdrawn and the surface is reported as bare or unvegetated ground.",
+        "radar_candidate_surfaces": [
+          "calm open water",
+          "wet smooth ground",
+          "dry sand or bare tarmac",
+          "radar shadow"
         ]
       }
     ],
@@ -353,7 +353,7 @@
       "step": "classify",
       "tool": null,
       "status": "ok",
-      "duration_ms": 0.0,
+      "duration_ms": 0.01,
       "summary": "Query routed to the optical_sar_analysis task by deterministic keyword/shape rules (2 image(s), modalities ['optical', 'sar']).",
       "parameters": {
         "task": "optical_sar_analysis"
@@ -379,7 +379,7 @@
       "step": "preprocess",
       "tool": "fusion-decision-cv",
       "status": "ok",
-      "duration_ms": 44.43,
+      "duration_ms": 48.01,
       "summary": "Inputs inspected and readied (quality assessed; any pair aligned to a common grid).",
       "parameters": {
         "input_quality": 0.9895,
@@ -391,7 +391,7 @@
       "step": "execute",
       "tool": "fusion-decision-cv",
       "status": "ok",
-      "duration_ms": 425.45,
+      "duration_ms": 415.41,
       "summary": "Ran fusion-decision-cv (classical tier) over the prepared raster(s).",
       "parameters": {
         "tier": "classical"
@@ -402,11 +402,11 @@
       "step": "score",
       "tool": "fusion-decision-cv",
       "status": "warning",
-      "duration_ms": 1.08,
+      "duration_ms": 1.76,
       "summary": "Confidence computed from measured evidence and the answer phrased from those measurements.",
       "parameters": {
         "confidence": "high",
-        "score": 0.9264978620862021
+        "score": 0.9260321638440147
       },
       "warnings": []
     },

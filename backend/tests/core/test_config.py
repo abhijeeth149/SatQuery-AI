@@ -51,8 +51,19 @@ class TestDefaults:
         """Debug on by default would leak internals through error responses (§29)."""
         assert build().debug is False
 
-    def test_learned_models_are_off_by_default(self):
-        """The deterministic backbone is the guaranteed path; opt-in only."""
+    def test_learned_models_are_permitted_by_default(self):
+        """A real adapted checkpoint now ships, so the learned rung is permitted by default.
+
+        This asserts *permission*, not availability. ``app.services.scene.is_available`` still
+        requires an actual weights file and an importable torch on top of this flag, so a clone with
+        neither runs the deterministic analysers exactly as before. The opposite default is still
+        reachable with ``SATQUERY_ENABLE_LEARNED_MODELS=false`` (covered below).
+        """
+        assert build().enable_learned_models is True
+
+    def test_learned_models_can_be_forced_off(self, monkeypatch):
+        """The deterministic-only path must stay one env var away, for a reviewer who wants it."""
+        monkeypatch.setenv("SATQUERY_ENABLE_LEARNED_MODELS", "false")
         assert build().enable_learned_models is False
 
     def test_upload_limits_are_finite_and_positive(self):

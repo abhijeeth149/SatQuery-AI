@@ -4,6 +4,7 @@ from .analysis import (
     TASK_OVERRIDE_AUTO,
     AnalyzeRequest,
     AnalyzeResponse,
+    ArtifactSchema,
     ConfidenceFactorSchema,
     ConfidenceSchema,
     EvidenceItem,
@@ -12,10 +13,13 @@ from .analysis import (
     HealthResponse,
     HistoryItem,
     HistoryResponse,
+    InputMetaSchema,
+    LegendEntrySchema,
     ModelInfo,
     ReportResponse,
     ToolContractSchema,
     UploadResponse,
+    Wgs84BoundsSchema,
 )
 
 __all__ = [
@@ -24,6 +28,7 @@ __all__ = [
     "UploadResponse",
     "AnalyzeRequest",
     "AnalyzeResponse",
+    "ArtifactSchema",
     "ConfidenceFactorSchema",
     "ConfidenceSchema",
     "EvidenceItem",
@@ -31,8 +36,11 @@ __all__ = [
     "ExecutionTraceStep",
     "HistoryItem",
     "HistoryResponse",
+    "InputMetaSchema",
+    "LegendEntrySchema",
     "ModelInfo",
     "ReportResponse",
     "ToolContractSchema",
     "HealthResponse",
+    "Wgs84BoundsSchema",
 ]

@@ -10,26 +10,26 @@
   "task": "grounding",
   "tool": "grounding-spectral-cv",
   "tier": "classical",
-  "duration_ms": 266.59,
+  "duration_ms": 324.18,
   "answer": "Found 3 distinct water regions, covering about 1.16 km\u00b2 (11572 px). Each region is one connected patch of water mapped at about 10 m per pixel.",
   "answer_withheld": null,
   "confidence": {
     "level": "high",
-    "score": 0.8777,
+    "score": 0.8731,
     "sufficient": true,
     "limiting_factor": "class_separability",
     "reasons": [
-      "The grounded class was separable at 0.88; 3 region(s) returned from 11572 class pixels.",
+      "The grounded class was separable at 0.87; 3 region(s) returned from 11572 class pixels.",
       "Input image quality scored 0.99 (dynamic range 0.73, saturation 0.02, nodata 0.00).",
       "No processing warnings were raised."
     ],
     "factors": [
       {
         "name": "class_separability",
-        "value": 0.8777,
+        "value": 0.8731,
         "weight": 0.45,
         "kind": "gate",
-        "reason": "The grounded class was separable at 0.88; 3 region(s) returned from 11572 class pixels."
+        "reason": "The grounded class was separable at 0.87; 3 region(s) returned from 11572 class pixels."
       },
       {
         "name": "warnings",
@@ -49,7 +49,7 @@
   },
   "evidence": [
     "Source: optical-classification (spectral-indices).",
-    "Classification method: spectral-indices; class separability 0.8777.",
+    "Classification method: spectral-indices; class separability 0.8731.",
     "3 candidate patches above the 25-pixel floor (2500 m\u00b2 minimum region).",
     "Region strength scored by mndwi (reported as evidence only, never used to accept or reject a region)."
   ],
@@ -565,7 +565,7 @@
         "ndvi",
         "ndbi"
       ],
-      "class_separability": 0.8777,
+      "class_separability": 0.8731,
       "region_score_index": "mndwi",
       "candidate_regions": 3,
       "min_region_pixels": 25,
@@ -635,7 +635,7 @@
       "step": "classify",
       "tool": null,
       "status": "ok",
-      "duration_ms": 0.0,
+      "duration_ms": 0.01,
       "summary": "Query routed to the grounding task by deterministic keyword/shape rules (1 image(s), modalities ['optical']).",
       "parameters": {
         "task": "grounding"
@@ -660,7 +660,7 @@
       "step": "preprocess",
       "tool": "grounding-spectral-cv",
       "status": "ok",
-      "duration_ms": 45.6,
+      "duration_ms": 52.49,
       "summary": "Inputs inspected and readied (quality assessed; any pair aligned to a common grid).",
       "parameters": {
         "input_quality": 0.9895
@@ -671,7 +671,7 @@
       "step": "execute",
       "tool": "grounding-spectral-cv",
       "status": "ok",
-      "duration_ms": 220.74,
+      "duration_ms": 271.38,
       "summary": "Ran grounding-spectral-cv (classical tier) over the prepared raster(s).",
       "parameters": {
         "tier": "classical"
@@ -682,11 +682,11 @@
       "step": "score",
       "tool": "grounding-spectral-cv",
       "status": "ok",
-      "duration_ms": 0.24,
+      "duration_ms": 0.29,
       "summary": "Confidence computed from measured evidence and the answer phrased from those measurements.",
       "parameters": {
         "confidence": "high",
-        "score": 0.8777
+        "score": 0.8731
       },
       "warnings": []
     },

@@ -144,7 +144,11 @@ export interface InputMeta {
   nodata: number | null
   pixel_size: [number, number] | null
   georeferenced: boolean
-  band_descriptions: string[]
+  /**
+   * The file's own band names, positionally. An entry is null for a band the file does not name (a
+   * plain PNG names none); the position is kept so a name cannot slide onto the wrong band.
+   */
+  band_descriptions: Array<string | null>
   decimation: number
   modality: Modality
   band_roles: string[]
@@ -249,7 +253,8 @@ export interface SarRegime {
   pixel_count: number
   fraction: number
   percentage: number
-  area_m2: number
+  /** Null when the scene carries no pixel size, so only the pixel count is measured. */
+  area_m2: number | null
   mean_backscatter_db: number
 }
 
@@ -266,15 +271,23 @@ export interface SpeckleStats {
 export interface SarHistogram {
   bins: number[]
   counts: number[]
-  mean: number
-  std: number
-  p05: number
-  p95: number
+  /**
+   * A raster with no finite pixels summarises as `{bins: [], counts: [], mean: null, std: null}` —
+   * the percentiles are absent entirely — so every figure here is optional.
+   */
+  mean: number | null
+  std: number | null
+  p05?: number | null
+  p95?: number | null
 }
 
 export interface SarData {
   polarization: string
-  thresholds_db: { smooth: number; bright: number; method: string }
+  /**
+   * The Otsu cuts, each null when that population could not be separated (`method: 'refused'` when
+   * neither could). Reading them as plain numbers crashed the result route — see `formatSarThresholds`.
+   */
+  thresholds_db: { smooth: number | null; bright: number | null; method: string }
   mode_prominence: { smooth: number; bright: number; threshold: number }
   separated_regimes: string[]
   regimes: SarRegime[]
@@ -343,6 +356,15 @@ export interface ChangeTransition {
   area_m2: number | null
   mean_magnitude: number
   spectral_agreement: number
+  /**
+   * Whether this transition may be *named* as a land-cover conversion (brief §8/§9).
+   *
+   * Decided in the backend from the registration gate and the independent spectral detector's
+   * agreement, and carried per row so the renderer never re-derives the rule. A transition with
+   * `false` here is a measured pixel population whose interpretation is withheld — it must never
+   * be presented as an observed conversion.
+   */
+  semantically_reportable: boolean
 }
 
 export interface ChangeClassDelta {
@@ -375,6 +397,64 @@ export interface ChangeEvidenceSplit {
   corroborated_fraction: number
 }
 
+/**
+ * The explicit verdict on whether the pair is aligned well enough for semantic claims (§5).
+ *
+ * Separate from {@link Registration}: that says how well the dates line up, this says what may
+ * therefore be claimed. Both sides of each comparison are carried so a refusal can be *shown*.
+ */
+export interface ChangeRegistrationGate {
+  passed: boolean
+  /** Empty when passed; otherwise one measured sentence per failing criterion. */
+  reasons: string[]
+  /** Keys: `offset_magnitude_px`, `ncc`, `score`. */
+  measured: Record<string, number>
+  /** Keys: `max_offset_px`, `min_ncc`, `min_score`. */
+  thresholds: Record<string, number>
+}
+
+/** The model-inferred half of the result: what may be concluded, or why nothing may be (§9). */
+export interface ChangeSemantic {
+  /** False when the gate failed or no transition is corroborated enough to name. */
+  supported: boolean
+  min_spectral_agreement: number
+  /** The single conversion that may be asserted, or null when none may be. */
+  transition: ChangeTransition | null
+  /** Present exactly when `supported` is false — the measured reason for the refusal. */
+  withheld_reason: string | null
+}
+
+/** What co-registration actually did about a misalignment, and what it measurably achieved (§4). */
+export interface ChangeCoregistration {
+  /** `none`, `pyramid-phase-correlation`, `orb-translation`, or `rejected`. */
+  method: string
+  applied: boolean
+  shift_x_px: number
+  shift_y_px: number
+  initial: Registration
+  final: Registration
+  score_improvement: number
+  /** Every method evaluated, including the ones rejected by measurement. */
+  candidates: Array<Record<string, unknown>>
+  warnings: string[]
+}
+
+/**
+ * How a change *question* was read, present only for the change-VQA tool (brief §7).
+ *
+ * Carried so a misread question is visible on the result page rather than only implied by an
+ * answer that quietly addresses something else.
+ */
+export interface ChangeQuestion {
+  /** The question as the user asked it. */
+  asked: string
+  /**
+   * The reading that produced the answer — e.g. `net change in water`, `changed extent`,
+   * `general change summary`, `no-change`.
+   */
+  interpreted_as: string
+}
+
 export interface ChangeData {
   method: string
   detectors: string[]
@@ -395,6 +475,12 @@ export interface ChangeData {
   class_deltas: ChangeClassDelta[]
   index_deltas: ChangeIndexDelta[]
   registration: Registration
+  registration_gate: ChangeRegistrationGate
+  semantic: ChangeSemantic
+  /** Absent when the pair needed no correction attempt at all. */
+  coregistration?: ChangeCoregistration
+  /** Present only for `change-vqa-cv`: change *detection* answers no question. */
+  question?: ChangeQuestion
   warnings: string[]
 }
 
@@ -443,6 +529,14 @@ export interface AnalysisSummary {
   status: AnalysisStatus
   confidence: ConfidenceLevel
   answer: string
+  /**
+   * True when this row is a shipped recording rather than a live backend run.
+   *
+   * The listing merges both, and the two id namespaces overlap — the backend mints ids from the same
+   * `SAT-2026-NNNNNN` sequence the recordings use — so a link built from the id alone is ambiguous.
+   * This flag is what lets a recorded row link to its recording and a live row link to the live run.
+   */
+  fixture?: boolean
 }
 
 // ---------------------------------------------------------------------------

@@ -353,6 +353,16 @@ class Tool(ABC):
         """
         return True
 
+    def describe_runtime(self) -> dict[str, Any] | None:
+        """Live provenance for a tool backed by a real artefact — checkpoint path, mode, metrics.
+
+        ``None`` for the deterministic analysers: they have no checkpoint, and inventing an empty
+        one would put a "model" field on a tool that is pure arithmetic. A learned tool overrides
+        this and *probes* the artefact on every call, so ``/api/models`` reports what is on disk now
+        rather than what was true at import time (§26). Additive, like :meth:`describe_contract`.
+        """
+        return None
+
     def run(self, ctx: ToolContext) -> ToolResult:
         """Execute the full pipeline: validate → preprocess → predict → postprocess.
 

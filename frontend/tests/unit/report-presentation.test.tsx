@@ -18,6 +18,7 @@ import type { ReportBlock, ReportModel } from '@/lib/report-model'
 import { renderReportHtml } from '@/lib/report-html'
 import { ReportDocument } from '@/components/report/report-document'
 import type { AnalysisResult, ChangeData } from '@/types/api'
+import { SAR_NO_BRIGHT } from './data/sar-no-bright'
 
 const GENERATED_AT = '2026-08-29T10:00:00.000Z'
 
@@ -67,6 +68,7 @@ const CHANGE: ChangeData = {
     area_m2: null,
     mean_magnitude: 0.3088,
     spectral_agreement: 0.63,
+    semantically_reportable: false,
   },
   transitions: [
     {
@@ -79,6 +81,7 @@ const CHANGE: ChangeData = {
       area_m2: null,
       mean_magnitude: 0.3088,
       spectral_agreement: 0.63,
+      semantically_reportable: false,
     },
     {
       from: 'vegetation',
@@ -90,6 +93,7 @@ const CHANGE: ChangeData = {
       area_m2: null,
       mean_magnitude: 0.2814,
       spectral_agreement: 0.41,
+      semantically_reportable: false,
     },
   ],
   class_deltas: [
@@ -133,6 +137,22 @@ const CHANGE: ChangeData = {
     ncc: 0.2197,
     score: 0.0806,
     warnings: ['The images appear misaligned by about 82.5 pixels.'],
+  },
+  registration_gate: {
+    passed: false,
+    reasons: [
+      'The two dates are offset by about 82.50 px, more than the 2.00 px a per-pixel comparison tolerates.',
+      'Structural agreement between the two dates is 0.22, below the 0.35 needed to establish that the two grids describe the same ground.',
+    ],
+    measured: { offset_magnitude_px: 82.503, ncc: 0.2197, score: 0.0806 },
+    thresholds: { max_offset_px: 2.0, min_ncc: 0.35, min_score: 0.45 },
+  },
+  semantic: {
+    supported: false,
+    min_spectral_agreement: 0.6,
+    transition: null,
+    withheld_reason:
+      'The two dates are not registered well enough for a per-pixel land-cover comparison, so any named conversion would be an artefact of the misalignment.',
   },
   warnings: [],
 }
@@ -282,13 +302,50 @@ describe('report findings for a non-georeferenced change run', () => {
     expect(field.hint).toMatch(/no georeference, so no ground area/i)
   })
 
-  it('states the dominant transition extent rather than "(—)"', () => {
+  it('withholds the conversion but still states the largest population and its extent', () => {
+    /*
+     * This used to look for a "Dominant change" callout, which the report emitted
+     * unconditionally — so a pair 82.5 px out of registration printed "Vegetation → Bare soil
+     * (Vegetation loss)" as a finding. The gate has failed here, so the callout now states the
+     * refusal and its reason, and the largest changed population is labelled as a measurement.
+     * The extent claim the old test protected is kept: no "(—)" where a pixel count is known.
+     */
     const callout = findings(model)
       .blocks.filter(isCallout)
-      .find((c) => c.title === 'Dominant change')!
+      .find((c) => c.title === 'No land-cover conversion is claimed')!
+    expect(callout.tone).toBe('warning')
+    expect(callout.body).toMatch(/not registered well enough/i)
     expect(callout.body).not.toMatch(/\(—\)/)
     expect(callout.body).toMatch(/22\.4% of the changed area/)
-    expect(callout.body).toMatch(/\d px\)\./)
+    expect(callout.body).toMatch(/\d px\)/)
+    expect(callout.body).toMatch(/not an observed conversion/i)
+    expect(
+      findings(model)
+        .blocks.filter(isCallout)
+        .some((c) => /conversion/i.test(c.title ?? '') && c.tone === 'info'),
+    ).toBe(false)
+  })
+
+  it('marks every measured transition as withheld when the gate has failed', () => {
+    const table = findings(model)
+      .blocks.filter(isTable)
+      .map((b) => b.table)
+      .find((t) => /transitions/i.test(t.caption ?? ''))!
+    expect(table.rows.map((r) => r.reportable)).toEqual(['Withheld', 'Withheld'])
+  })
+
+  it('shows both sides of every registration gate comparison', () => {
+    const fields = findings(model)
+      .blocks.filter(isFields)
+      .flatMap((b) => b.fields)
+    const verdict = fields.find((f) => f.label === 'Registration gate')!
+    expect(verdict.value).toBe('Failed')
+    expect(verdict.hint).toMatch(/withheld/i)
+    // A refusal has to be demonstrable: the measurement and the bound it missed are both printed.
+    expect(fields.find((f) => f.label === 'Pixel offset')!.value).toMatch(/82\.50 px/)
+    expect(fields.find((f) => f.label === 'Pixel offset')!.hint).toMatch(/≤ 2\.00 px/)
+    expect(fields.find((f) => f.label === 'Structural agreement')!.value).toBe('0.220')
+    expect(fields.find((f) => f.label === 'Structural agreement')!.hint).toMatch(/≥ 0\.35/)
   })
 
   it('keeps ground areas when the pair is georeferenced', () => {
@@ -376,5 +433,79 @@ describe('report answer and weak-evidence caveat', () => {
     expect(caveatAt).toBeGreaterThan(answerAt)
     // And the fabricated zero never reaches the file.
     expect(html).not.toMatch(/\+0 m²/)
+  })
+})
+
+/**
+ * The report for a SAR run whose bright threshold never resolved (SAT-2026-000548).
+ *
+ * The report block quoted both Otsu cuts with `toFixed`, exactly as the result panel did, so the
+ * same null that killed the result route would have killed the report — the second copy of the bug,
+ * on the path the user reaches through "View report".
+ */
+describe('report for a SAR run with one unresolved threshold', () => {
+  /** Only the fields the SAR sections read; nothing about this run is invented to fill the rest. */
+  function sarResult(): AnalysisResult {
+    return {
+      id: 'SAT-2026-000548',
+      request_id: 'req-000548',
+      created_at: '2026-08-30T15:38:00Z',
+      title: 'SAR backscatter analysis',
+      note: 'Live analysis executed via optical_sar_analysis',
+      status: 'partial',
+      mode: 'single_sar',
+      task: 'optical_sar_analysis',
+      tool: 'sar-backscatter-cv',
+      tier: 'classical',
+      duration_ms: 185,
+      fixture: false,
+      query: 'Describe the radar backscatter in this scene.',
+      answer:
+        'The unknown radar backscatter is predominantly diffuse scattering (94% of valid pixels, mean 15.8 dB). Regimes separated: smooth, diffuse.',
+      answer_withheld: null,
+      confidence: {
+        level: 'high',
+        score: 0.7956,
+        sufficient: true,
+        limiting_factor: 'warnings',
+        reasons: ['Scattering regimes separated at 0.75.'],
+        factors: [
+          {
+            name: 'regime_separation',
+            value: 0.7532,
+            weight: 0.35,
+            kind: 'contributor',
+            reason: 'Scattering regimes separated at 0.75.',
+          },
+        ],
+      },
+      data: SAR_NO_BRIGHT,
+      artifacts: [],
+      evidence: ['94.4% of valid pixels are diffuse scattering (mean 15.8 dB).'],
+      warnings: SAR_NO_BRIGHT.warnings,
+      inputs: [],
+      trace: [],
+    } as unknown as AnalysisResult
+  }
+
+  const texts = (m: ReportModel): string[] =>
+    m.sections
+      .flatMap((s) => s.blocks)
+      .filter((b): b is Extract<ReportBlock, { kind: 'text' }> => b.kind === 'text')
+      .map((b) => b.text)
+
+  it('says the bright threshold was not resolved instead of failing to build', () => {
+    const built = buildReportModel(sarResult(), GENERATED_AT)
+    const thresholds = texts(built).find((t) => t.startsWith('Backscatter thresholds'))
+    expect(thresholds).toBe(
+      'Backscatter thresholds (otsu-3class): smooth ≤ 5.0 dB. No distinct bright-scattering population was separated, so no bright threshold is reported. SAR reports scattering behaviour, not material identity — surfaces are candidates, not confirmed classes.',
+    )
+  })
+
+  it('carries the same wording into the downloadable file, with no invented figure', () => {
+    const html = renderReportHtml(buildReportModel(sarResult(), GENERATED_AT))
+    expect(html).toMatch(/no bright threshold is reported/)
+    expect(html).not.toMatch(/bright ≥/)
+    expect(html).not.toMatch(/NaN|undefined dB|null dB/)
   })
 })

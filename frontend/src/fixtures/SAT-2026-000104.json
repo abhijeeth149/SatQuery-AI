@@ -10,7 +10,7 @@
   "task": "optical_sar_analysis",
   "tool": "sar-backscatter-cv",
   "tier": "classical",
-  "duration_ms": 184.98,
+  "duration_ms": 186.08,
   "answer": "The VV radar backscatter is predominantly diffuse scattering (92% of valid pixels, mean -13.0 dB). Regimes separated: smooth, diffuse, double bounce. Diffuse scattering is consistent with vegetation, bare soil, rough natural terrain \u2014 radar cannot decide between these from backscatter alone.",
   "answer_withheld": null,
   "confidence": {
@@ -273,7 +273,7 @@
       "step": "validate",
       "tool": "sar-backscatter-cv",
       "status": "ok",
-      "duration_ms": 0.0,
+      "duration_ms": 0.01,
       "summary": "Inputs accepted: modality and image count satisfy the tool's preconditions.",
       "parameters": {
         "images": 1,
@@ -287,7 +287,7 @@
       "step": "preprocess",
       "tool": "sar-backscatter-cv",
       "status": "ok",
-      "duration_ms": 19.53,
+      "duration_ms": 20.54,
       "summary": "Inputs inspected and readied (quality assessed; any pair aligned to a common grid).",
       "parameters": {
         "input_quality": 1.0
@@ -298,7 +298,7 @@
       "step": "execute",
       "tool": "sar-backscatter-cv",
       "status": "ok",
-      "duration_ms": 165.23,
+      "duration_ms": 165.31,
       "summary": "Ran sar-backscatter-cv (classical tier) over the prepared raster(s).",
       "parameters": {
         "tier": "classical"

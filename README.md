@@ -29,7 +29,7 @@ SatQuery AI implements all 5 mandatory SIH26167 capabilities:
 | 3 | Bi-Temporal Change Understanding | `backend/app/services/change.py` | ✅ Real |
 | 4 | Optical + SAR Cross-Modal Reasoning | `backend/app/services/fusion.py` | ✅ Real |
 | 5 | Agentic Model/Tool Orchestration | `backend/app/agents/` | ✅ Real |
-| 6 | Remote-Sensing Adaptation | `ml/adaptation/` | ✅ Real PyTorch |
+| 6 | Remote-Sensing Adaptation | `ml/adaptation/` | ✅ Real — EuroSAT linear probe, 87.25% |
 | 7 | GeoTIFF Handling | `backend/app/geospatial/` | ✅ Real |
 | 8 | Evidence-Grounded Answers | `backend/app/services/confidence.py` | ✅ Real |
 | 9 | Benchmark Evaluation | `ml/evaluation/` | ✅ Real |
@@ -40,7 +40,7 @@ SatQuery AI implements all 5 mandatory SIH26167 capabilities:
 
 - **Not a chatbot**: Every answer is grounded in deterministic remote-sensing analysis, not LLM generation
 - **Not a VLM wrapper**: Implements physics-based spectral indices (NDVI, NDWI, NDBI), Lee SAR speckle filtering, Change Vector Analysis, and decision-level optical+SAR fusion
-- **Real adaptation**: PyTorch LoRA fine-tuning on BigEarthNet with actual gradient descent and real checkpoints
+- **Real adaptation**: a real `torchvision` ResNet-18 with genuine ImageNet weights, linear-probed on real EuroSAT Sentinel-2 imagery — actual gradient descent, a real 44.8 MB checkpoint, and a measured 87.25% top-1 accuracy on a held-out split
 - **Honest confidence**: Evidence-based scoring with bimodality coefficients, separability scores, and data quality gates — never a fixed number
 - **Agentic orchestration**: Deterministic query classification → input validation → tool dispatch → evidence integration → auditable trace
 
@@ -97,16 +97,31 @@ SatQuery AI implements all 5 mandatory SIH26167 capabilities:
 - **Optical+SAR Fusion**: Decision-level arbitration using physics-grounded rules (radar double-bounce vs optical SWIR/texture)
 - **Grounding**: Natural-language target parsing → spectral index thresholding → contour extraction → region vectorization
 
-### Adapted Model (LoRA Tier)
-- **Architecture**: CNN backbone (6-band Sentinel-2 input) + LoRA adapter layers + multi-label classification head
-- **Training**: Real PyTorch BCEWithLogitsLoss + AdamW + CosineAnnealing on BigEarthNet-19 classes
-- **Dataset**: BigEarthNet multi-label LULC (synthetic fallback with physically realistic spectral signatures when real patches unavailable)
-- **Checkpoint**: Actual `state_dict` weights saved at `ml/checkpoints/satquery_adapted/`
+### Adapted Model (Preferred Tier) — `satquery-rs-visual-v1`
+
+> The adapted component is a remote-sensing visual model used as a specialist evidence/model
+> component. It is not itself the complete VQA system.
+
+- **Dataset**: **EuroSAT (RGB)** — genuine Sentinel-2 imagery, MIT licence, ~94 MB. A seeded,
+  class-stratified 2,000 / 400 / 400 subset. Not BigEarthNet, and not synthetic.
+- **Base model**: real `torchvision.models.resnet18` (11,181,642 parameters)
+- **Pretrained weights**: real `ResNet18_Weights.IMAGENET1K_V1`
+- **Method**: **linear probe** — backbone frozen (BatchNorm held in `eval()`), 10-class `fc` layer
+  retrained. **5,130 trainable parameters.** This is not LoRA and no LoRA is implemented.
+- **Training**: 3 epochs, batch 32, AdamW, lr 1e-3, CrossEntropyLoss, seed 1337, ~190 s on CPU
+- **Checkpoint**: real `state_dict` at `ml/checkpoints/satquery-rs-visual-v1/model.pt`
+- **Remote-sensing adaptation evaluation**: **87.25% top-1 (349/400)** on the held-out test split.
+  This is *not* an SIH benchmark score; the prescribed SIH benchmark was not run.
+- **Integration**: registered as the `PREFERRED` rung of the captioning task, with the deterministic
+  `captioning-landcover-cv` analyser retained as the fallback. `GET /api/models` reports its live
+  mode and checkpoint path.
+
+Full detail: [`docs/remote-sensing-adaptation.md`](docs/remote-sensing-adaptation.md).
 
 ### Datasets Supported
 | Dataset | Purpose | Adapter |
 |:--------|:--------|:--------|
-| BigEarthNet | Multi-label LULC classification & adaptation | `ml/datasets/adapters.py` |
+| EuroSAT (RGB) | Real remote-sensing model adaptation (scene land-use) | `ml/datasets/eurosat_adapter.py` |
 | RSVQA | VQA evaluation | `ml/datasets/adapters.py` |
 | VRSBench | Grounding evaluation | `ml/datasets/adapters.py` |
 | CDVQA | Change detection VQA | `ml/datasets/adapters.py` |
@@ -224,15 +239,22 @@ make demo-test
 ## 12. Model Training & Adaptation
 
 ```bash
-# Prepare dataset (generates synthetic BigEarthNet patches)
+# Download real EuroSAT (RGB) imagery and record the seeded 2000/400/400 subset
 make prepare-data
 
-# Run real PyTorch training
+# Adapt the pretrained ResNet-18 by linear probing (also runs the evaluation)
 make train
 
-# Evaluate adapted model
-python -m ml.adaptation.evaluate
+# Remote-sensing adaptation evaluation on the held-out test split, on its own
+make evaluate-adaptation
+
+# Verify the checkpoint loads and predicts outside the app, on an unseen image
+python -m ml.adaptation.inference --image <path/to/image>
 ```
+
+The checkpoint is git-ignored. Without it the captioning task falls back to the deterministic
+`captioning-landcover-cv` analyser and `/api/models` reports `Mode: UNAVAILABLE` with a reason —
+a supported state, not a failure.
 
 ---
 
@@ -249,8 +271,8 @@ Generates reports at `reports/benchmark_evaluation_report.md` and `reports/bench
 
 ## 14. Known Limitations
 
-1. **Classical models only**: The prototype ships deterministic CV/RS analysis tools. A trained VLM (e.g., BLIP-2, InternVL) can be plugged into the PREFERRED tier without changing any caller code.
-2. **Synthetic training data**: When real BigEarthNet patches are unavailable, training uses synthetic spectral signatures. The system documents this honestly.
+1. **One learned component, everything else classical**: `satquery-rs-visual-v1` is the only learned model. It is a scene-level land-use classifier used as a specialist evidence component — *not* itself the complete VQA system. VQA, grounding, change and fusion remain deterministic CV/RS analysis. A trained VLM (e.g., BLIP-2, InternVL) can be plugged into the PREFERRED tier without changing any caller code.
+2. **The adaptation is deliberately small**: 2,000 training images, 3 epochs, 5,130 trainable parameters, RGB only, ten closed EuroSAT classes, European Sentinel-2 imagery. The 87.25% figure applies to the EuroSAT test split and nothing else; accuracy on other sensors, regions or resolutions is unmeasured. Known confusion: Highway ↔ River. No synthetic training data is used anywhere.
 3. **No authentication**: The prototype omits auth/RBAC per SIH guidelines (§48).
 4. **CPU training**: Model adaptation is designed for CPU; GPU speeds it up but isn't required.
 5. **Limited SAR preprocessing**: Lee filter only; no polarimetric decomposition.
@@ -262,7 +284,7 @@ Generates reports at `reports/benchmark_evaluation_report.md` and `reports/bench
 - Integrate a pretrained remote-sensing VLM (RemoteCLIP, GeoChat) as PREFERRED tier
 - Full PolSAR decomposition (Cloude-Pottier, Freeman-Durden)
 - Real-time satellite data ingestion via SentinelHub/Google Earth Engine
-- Multi-GPU distributed training for full BigEarthNet
+- Multi-GPU distributed training and a full fine-tune on a larger corpus (e.g. BigEarthNet) rather than a linear probe on an EuroSAT subset
 - PostgreSQL + PostGIS for production deployment
 - Kubernetes orchestration for scalable inference
 
@@ -277,7 +299,7 @@ Generates reports at `reports/benchmark_evaluation_report.md` and `reports/bench
 | Bi-Temporal Change | `backend/app/services/change.py` | `tests/services/`, `tests/geospatial/` | Demo 3, 4 |
 | Optical + SAR Fusion | `backend/app/services/fusion.py` | `tests/services/`, `tests/agent/` | Demo 5 |
 | Agentic Orchestration | `backend/app/agents/` | `tests/agent/` | All demos |
-| RS Adaptation | `ml/adaptation/` | Adaptation evaluation | Documented |
+| RS Adaptation | `ml/adaptation/` | `backend/tests/ml/`, `backend/tests/agent/test_scene_tool.py` | 87.25% measured |
 | GeoTIFF Handling | `backend/app/geospatial/` | `tests/geospatial/` | All demos |
 | Evidence & Confidence | `backend/app/services/confidence.py` | `tests/services/` | All demos |
 | Benchmark Evaluation | `ml/evaluation/` | `make evaluate` | Report |
@@ -303,8 +325,9 @@ satquery-ai/
 │   │   └── db/         # SQLAlchemy models
 │   └── tests/          # Unit, integration, geospatial, agent, adversarial
 ├── ml/
-│   ├── adaptation/     # Real PyTorch training pipeline
-│   ├── datasets/       # BigEarthNet/RSVQA/VRSBench/CDVQA adapters
+│   ├── adaptation/     # Real EuroSAT linear-probe training pipeline
+│   ├── checkpoints/    # satquery-rs-visual-v1 (real trained weights, git-ignored)
+│   ├── datasets/       # EuroSAT adapter + RSVQA/VRSBench/CDVQA eval adapters
 │   ├── evaluation/     # Benchmark evaluation scripts
 │   └── inference/      # CLI inference runner
 ├── data/demo/          # Synthetic GeoTIFF demo data
