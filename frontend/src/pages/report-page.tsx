@@ -83,9 +83,9 @@ export function ReportPage() {
   }, [model])
 
   return (
-    <div className="min-h-screen bg-slate-100 print:bg-white">
+    <div className="min-h-screen bg-muted/40 text-foreground print:bg-white">
       {/* Action bar — omitted from print output. */}
-      <div className="sticky top-0 z-10 border-b border-slate-200 bg-white/90 backdrop-blur print:hidden">
+      <div className="sticky top-0 z-10 border-b border-border bg-card/90 backdrop-blur print:hidden">
         <div className="mx-auto flex max-w-[820px] flex-wrap items-center justify-between gap-3 px-4 py-3">
           <Button variant="ghost" size="sm" asChild>
             <Link to={`/analysis/${id}${recorded ? '?demo=1' : ''}`}>
@@ -99,11 +99,17 @@ export function ReportPage() {
               size="sm"
               onClick={handleDownload}
               disabled={!model || downloading}
+              className="border-border bg-card hover:bg-accent"
             >
               {downloading ? <Loader2 className="animate-spin" /> : <Download />}
               Download HTML
             </Button>
-            <Button size="sm" onClick={() => window.print()} disabled={!model}>
+            <Button
+              size="sm"
+              onClick={() => window.print()}
+              disabled={!model}
+              className="bg-primary text-primary-foreground hover:bg-primary/90"
+            >
               <Printer />
               Print / Save PDF
             </Button>

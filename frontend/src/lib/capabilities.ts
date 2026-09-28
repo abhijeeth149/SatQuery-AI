@@ -74,4 +74,15 @@ export const CAPABILITIES: Capability[] = [
     demoCaseId: 'SAT-2026-000106',
     inputs: '2 co-registered scenes (t1, t2)',
   },
+  {
+    id: 'vqa',
+    mode: 'single_optical',
+    task: 'vqa',
+    title: 'Visual question answering',
+    description:
+      'Ask specific questions about land cover composition, presence, quantity, or spatial comparisons in a scene.',
+    exampleQuery: 'Is there more vegetation or built-up land in this scene?',
+    demoCaseId: 'SAT-2026-000101',
+    inputs: '1 optical raster',
+  },
 ]

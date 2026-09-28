@@ -90,6 +90,9 @@ storage_dir = settings.storage_root
 storage_dir.mkdir(parents=True, exist_ok=True)
 app.mount("/storage", StaticFiles(directory=str(storage_dir)), name="storage")
 
+if settings.demo_data_root.exists():
+    app.mount("/demo-data", StaticFiles(directory=str(settings.demo_data_root)), name="demo-data")
+
 # Include Routers
 app.include_router(upload_router, prefix="/api")
 app.include_router(analysis_router, prefix="/api")

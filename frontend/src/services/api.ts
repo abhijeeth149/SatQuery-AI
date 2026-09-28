@@ -811,3 +811,36 @@ export async function getEvaluationReport(): Promise<any> {
     return null
   }
 }
+
+export async function getModels(): Promise<import('@/types/api').DetailedModelInfo[]> {
+  try {
+    return await fetchJson<import('@/types/api').DetailedModelInfo[]>('/api/models')
+  } catch {
+    return []
+  }
+}
+
+export interface HistoryItem {
+  id: string
+  analysis_id?: string
+  query: string
+  mode: string
+  task: string
+  tool?: string
+  tier?: string
+  status: string
+  answer: string
+  confidence_level: string
+  confidence_score: number
+  created_at: string
+  duration_ms?: number
+}
+
+export async function getHistoryList(limit = 50): Promise<HistoryItem[]> {
+  try {
+    const res = await fetchJson<{ total: number; items: HistoryItem[] }>(`/api/history?limit=${limit}`)
+    return res.items ?? []
+  } catch {
+    return []
+  }
+}

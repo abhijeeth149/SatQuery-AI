@@ -4,83 +4,103 @@
 
 @layer base {
   :root {
-    --background: 0 0% 100%;
-    --foreground: 222.2 84% 4.9%;
+    /* LIGHT MODE (Scientific / Geospatial Analytics Platform) */
+    --background: 216 38% 97.5%;      /* #F6F8FB */
+    --foreground: 214 30% 13%;        /* #17202B */
 
-    --card: 0 0% 100%;
-    --card-foreground: 222.2 84% 4.9%;
+    --card: 0 0% 100%;                /* #FFFFFF */
+    --card-foreground: 214 30% 13%;   /* #17202B */
 
-    --popover: 0 0% 100%;
-    --popover-foreground: 222.2 84% 4.9%;
+    --popover: 0 0% 100%;             /* #FFFFFF */
+    --popover-foreground: 214 30% 13%;/* #17202B */
 
-    --primary: 221.2 83.2% 53.3%;
-    --primary-foreground: 210 40% 98%;
+    --primary: 199 89% 48%;           /* Cyan-Blue / #0EA5E9 */
+    --primary-foreground: 0 0% 100%;
 
-    --secondary: 210 40% 96.1%;
-    --secondary-foreground: 222.2 47.4% 11.2%;
+    --secondary: 214 32% 96%;         /* #F1F4F8 */
+    --secondary-foreground: 210 16% 38%; /* #526170 */
 
-    --muted: 210 40% 96.1%;
-    --muted-foreground: 215.4 16.3% 46.9%;
+    --muted: 214 32% 96%;             /* #F1F4F8 */
+    --muted-foreground: 210 16% 38%;  /* #526170 */
 
-    --accent: 210 40% 96.1%;
-    --accent-foreground: 222.2 47.4% 11.2%;
+    --accent: 214 30% 93%;            /* #E8EDF3 */
+    --accent-foreground: 214 30% 13%; /* #17202B */
 
-    --destructive: 0 72.2% 50.6%;
-    --destructive-foreground: 210 40% 98%;
+    --destructive: 0 72% 51%;         /* #DC2626 */
+    --destructive-foreground: 0 0% 100%;
 
-    --success: 142.1 70.6% 45.3%;
+    --success: 142 71% 45%;           /* Green */
     --success-foreground: 0 0% 100%;
 
-    --warning: 32.1 94.6% 43.7%;
+    --warning: 38 92% 50%;            /* Amber */
     --warning-foreground: 0 0% 100%;
 
-    --info: 199.9 89.1% 48%;
+    --info: 199 89% 48%;              /* Cyan/Blue */
     --info-foreground: 0 0% 100%;
 
-    --border: 214.3 31.8% 91.4%;
-    --input: 214.3 31.8% 91.4%;
-    --ring: 221.2 83.2% 53.3%;
+    --border: 210 22% 88%;            /* #D8E0E8 */
+    --input: 210 22% 88%;             /* #D8E0E8 */
+    --ring: 199 89% 48%;
 
     --radius: 0.5rem;
+
+    /* Semantic custom design tokens */
+    --surface: #FFFFFF;
+    --surface-secondary: #F1F4F8;
+    --surface-hover: #E8EDF3;
+    --text-primary: #17202B;
+    --text-secondary: #526170;
+    --text-muted: #7A8795;
+    --border-color: #D8E0E8;
   }
 
   .dark {
-    --background: 222.2 84% 4.9%;
-    --foreground: 210 40% 98%;
+    /* DARK MODE (AI / Satellite Intelligence Command Center) */
+    --background: 218 44% 5%;         /* #070B12 */
+    --foreground: 216 33% 97%;        /* #F5F7FA */
 
-    --card: 222.2 47.4% 11.2%;
-    --card-foreground: 210 40% 98%;
+    --card: 216 38% 8%;               /* #0D131D */
+    --card-foreground: 216 33% 97%;   /* #F5F7FA */
 
-    --popover: 222.2 84% 4.9%;
-    --popover-foreground: 210 40% 98%;
+    --popover: 216 38% 8%;            /* #0D131D */
+    --popover-foreground: 216 33% 97%;/* #F5F7FA */
 
-    --primary: 217.2 91.2% 59.8%;
-    --primary-foreground: 222.2 47.4% 11.2%;
+    --primary: 199 89% 48%;           /* Cyan-Blue / #0EA5E9 */
+    --primary-foreground: 218 44% 5%;
 
-    --secondary: 217.2 32.6% 17.5%;
-    --secondary-foreground: 210 40% 98%;
+    --secondary: 215 39% 11%;         /* #111A27 */
+    --secondary-foreground: 213 15% 66%; /* #9BA8B7 */
 
-    --muted: 217.2 32.6% 17.5%;
-    --muted-foreground: 215 20.2% 65.1%;
+    --muted: 215 39% 11%;             /* #111A27 */
+    --muted-foreground: 213 15% 66%;  /* #9BA8B7 */
 
-    --accent: 217.2 32.6% 17.5%;
-    --accent-foreground: 210 40% 98%;
+    --accent: 216 38% 14%;            /* #162131 */
+    --accent-foreground: 216 33% 97%; /* #F5F7FA */
 
-    --destructive: 0 62.8% 45%;
-    --destructive-foreground: 210 40% 98%;
+    --destructive: 0 72% 51%;
+    --destructive-foreground: 216 33% 97%;
 
-    --success: 142.1 70.6% 45.3%;
+    --success: 142 71% 45%;
     --success-foreground: 0 0% 100%;
 
-    --warning: 32.1 94.6% 51%;
-    --warning-foreground: 20 14% 8%;
+    --warning: 38 92% 50%;
+    --warning-foreground: 218 44% 5%;
 
-    --info: 199.9 89.1% 52%;
+    --info: 199 89% 48%;
     --info-foreground: 0 0% 100%;
 
-    --border: 217.2 32.6% 20%;
-    --input: 217.2 32.6% 20%;
-    --ring: 224.3 76.3% 58%;
+    --border: 214 31% 21%;            /* #243244 */
+    --input: 214 31% 21%;             /* #243244 */
+    --ring: 199 89% 48%;
+
+    /* Semantic custom design tokens */
+    --surface: #0D131D;
+    --surface-secondary: #111A27;
+    --surface-hover: #162131;
+    --text-primary: #F5F7FA;
+    --text-secondary: #9BA8B7;
+    --text-muted: #667384;
+    --border-color: #243244;
   }
 }
 
@@ -98,12 +118,18 @@
     font-feature-settings:
       'rlig' 1,
       'calt' 1;
+    transition: background-color 200ms ease, color 200ms ease;
+  }
+
+  /* Smooth theme transitions for cards, nav, inputs, and borders */
+  aside, header, main, nav, .card, input, textarea, select, button, table {
+    transition: background-color 200ms ease, border-color 200ms ease, color 200ms ease;
   }
 
   /* Thin, theme-aware scrollbars keep dense data panels tidy. */
   ::-webkit-scrollbar {
-    width: 10px;
-    height: 10px;
+    width: 8px;
+    height: 8px;
   }
   ::-webkit-scrollbar-thumb {
     @apply rounded-full bg-border;
@@ -120,18 +146,16 @@
   }
 }
 
-/* Leaflet renders its own controls; make them adopt our surface colors so the
-   map does not look bolted-on in dark mode. Base leaflet.css is imported by the
-   MapView component. */
+/* Leaflet renders its own controls; make them adopt our surface colors */
 .leaflet-container {
   @apply bg-muted font-sans;
   background: hsl(var(--muted));
 }
 
 .leaflet-control-attribution {
-  @apply bg-background/70 text-muted-foreground;
+  @apply bg-background/80 text-muted-foreground backdrop-blur-sm;
 }
 
 .leaflet-bar a {
-  @apply bg-card text-card-foreground;
+  @apply bg-card text-card-foreground border-border hover:bg-accent;
 }

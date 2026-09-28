@@ -547,6 +547,34 @@ export interface HealthCheck {
   detail?: string
 }
 
+export interface ModelContract {
+  supported_modes: string[]
+  min_images: number
+  max_images: number
+  required_modalities: string[]
+}
+
+export interface ModelRuntime {
+  model_id: string
+  mode: string
+  checkpoint: string | null
+  checkpoint_present: boolean
+  learned_models_enabled: boolean
+  torch_available: boolean
+  reason?: string
+}
+
+export interface DetailedModelInfo {
+  name: string
+  task: string
+  tier: string
+  summary: string
+  available: boolean
+  status: string
+  contract: ModelContract
+  runtime?: ModelRuntime | null
+}
+
 export interface ModelRegistryEntry {
   task: string
   tool: string
